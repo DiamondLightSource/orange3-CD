@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Orange3-CD"
+version = "0.1.0"
+description = "Orange3 widgets for circular dichroism data analysis"
+requires-python = ">=3.10"
+dependencies = [
+    "Orange3>=3.36",
+    "pandas>=1.5",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Framework :: Orange",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7",
+    "pytest-cov>=4",
+]
+
+[project.entry-points."orange3.addon"]
+orange_cd = "orangecontrib.orangeCD"
+
+[project.entry-points."orange.widgets"]
+"Orange CD" = "orangecontrib.orangeCD.widgets"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orangecontrib.orangeCD*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"orangecontrib.orangeCD.widgets" = ["icons/*.svg"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["orangecontrib/orangeCD/widgets/tests"]
