@@ -6,21 +6,10 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from AnyQt.QtCore import Qt
 from AnyQt.QtGui import QColor
-from AnyQt.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
-    QGroupBox,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QPushButton,
-    QVBoxLayout,
-)
+from AnyQt.QtWidgets import QAbstractItemView
 from Orange.data import ContinuousVariable, Table
+from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
@@ -34,20 +23,21 @@ PROCESSING_STAGES = (
 )
 
 COLOUR_SCALES = {
-    "Viridis": ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
-    "Plasma": ("#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"),
-    "Inferno": ("#000004", "#420a68", "#932667", "#dd513a", "#fca50a", "#fcffa4"),
-    "Cividis": ("#00224e", "#31446b", "#666970", "#a38f63", "#e6c75a", "#fee838"),
-    "Blue to red": ("#2166ac", "#67a9cf", "#d1e5f0", "#fddbc7", "#ef8a62", "#b2182b"),
-    "Greyscale": ("#111111", "#555555", "#999999", "#dddddd"),
-    "Classic": ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"),
-}
+    "Viridis":      ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
+    "Plasma":       ("#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"),
+    "Inferno":      ("#000004", "#420a68", "#932667", "#dd513a", "#fca50a", "#fcffa4"),
+    "Cividis":      ("#00224e", "#31446b", "#666970", "#a38f63", "#e6c75a", "#fee838"),
+    "Blue to red":  ("#2166ac", "#67a9cf", "#d1e5f0", "#fddbc7", "#ef8a62", "#b2182b"),
+    "Greyscale":    ("#111111", "#555555", "#999999", "#dddddd"),
+    "Classic":      ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
+    }
 
 
 def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
     """Sample *count* line colours across the selected colour scale."""
     if count <= 0:
         return []
+
     anchors = [QColor(value) for value in COLOUR_SCALES[scale_name]]
     if count == 1:
         return [anchors[len(anchors) // 2]]
@@ -57,7 +47,8 @@ def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
         lower = int(np.floor(position))
         upper = min(lower + 1, len(anchors) - 1)
         fraction = position - lower
-        first, second = anchors[lower], anchors[upper]
+        first = anchors[lower]
+        second = anchors[upper]
         colours.append(
             QColor.fromRgbF(
                 first.redF() + fraction * (second.redF() - first.redF()),
@@ -78,85 +69,134 @@ class OWCDSpectraPlot(OWWidget):
 
     selected_stage = Setting("plus_sol_A")
     colour_scale = Setting("Viridis")
-    show_legend = Setting(True)
     line_width = Setting(1.5)
+    show_legend = Setting(True)
     reverse_wavelength_axis = Setting(False)
+    selected_spectra = Setting([])
+
+    # This is the list model displayed by gui.listBox. It is derived from the
+    # input domain, so it is not persisted as a Setting.
+    spectra_names: list[str] = []
 
     class Inputs:
         data = Input("Processed CD Data", Table)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg(
-            "The input table does not contain a continuous Wavelength meta attribute."
-        )
+        missing_wavelength = Msg("The input table does not contain a continuous Wavelength meta attribute.")
         no_numeric_spectra = Msg("The input table contains no continuous spectra.")
         invalid_wavelength = Msg("The Wavelength meta contains missing values.")
 
     def __init__(self) -> None:
         super().__init__()
+
+        self.selected_stage = self._normalise_combo_setting(
+            self.selected_stage,
+            PROCESSING_STAGES,
+            default="plus_sol_A",
+        )
+        self.colour_scale = self._normalise_combo_setting(
+            self.colour_scale,
+            tuple(COLOUR_SCALES),
+            default="Viridis",
+        )
+
         self.data: Table | None = None
         self._build_controls()
         self._build_plot()
-
+        
     def _build_controls(self) -> None:
-        options = QGroupBox("Plot options", self.controlArea)
-        layout = QVBoxLayout(options)
+        options = gui.widgetBox(self.controlArea, "Plot options")
 
-        layout.addWidget(QLabel("Processing stage", options))
-        self.stage_combo = QComboBox(options)
-        self.stage_combo.addItems(PROCESSING_STAGES)
-        index = self.stage_combo.findText(self.selected_stage)
-        self.stage_combo.setCurrentIndex(index if index >= 0 else 0)
-        self.stage_combo.currentTextChanged.connect(self._stage_changed)
-        layout.addWidget(self.stage_combo)
-
-        layout.addWidget(QLabel("Colour scale", options))
-        self.colour_scale_combo = QComboBox(options)
-        self.colour_scale_combo.addItems(COLOUR_SCALES)
-        index = self.colour_scale_combo.findText(self.colour_scale)
-        self.colour_scale_combo.setCurrentIndex(index if index >= 0 else 0)
-        self.colour_scale_combo.currentTextChanged.connect(
-            self._colour_scale_changed
+        gui.comboBox(
+            options,
+            self,
+            "selected_stage",
+            label="Processing stage",
+            items=PROCESSING_STAGES,
+            orientation="vertical",
+            sendSelectedValue=True,
+            callback=self._stage_changed,
         )
-        layout.addWidget(self.colour_scale_combo)
 
-        layout.addWidget(QLabel("Line width", options))
-        self.line_width_spin = QDoubleSpinBox(options)
-        self.line_width_spin.setRange(0.1, 10.0)
-        self.line_width_spin.setSingleStep(0.1)
-        self.line_width_spin.setDecimals(1)
-        self.line_width_spin.setSuffix(" px")
-        self.line_width_spin.setValue(self.line_width)
-        self.line_width_spin.valueChanged.connect(
-            self._line_width_changed
+        gui.comboBox(
+            options,
+            self,
+            "colour_scale",
+            label="Colour scale",
+            items=tuple(COLOUR_SCALES),
+            orientation="vertical",
+            sendSelectedValue=True,
+            callback=self._replot,
         )
-        layout.addWidget(self.line_width_spin)
 
-        layout.addWidget(QLabel("Spectra", options))
-        self.spectra_list = QListWidget(options)
-        self.spectra_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        gui.doubleSpin(
+            options,
+            self,
+            "line_width",
+            0.1,
+            10.0,
+            step=0.1,
+            label="Line width",
+            decimals=1,
+            suffix=" px",
+            orientation="vertical",
+            callback=self._replot,
+        )
+
+        gui.widgetLabel(options, "Spectra")
+        self.spectra_list = gui.listBox(
+            options,
+            self,
+            "selected_spectra",
+            "spectra_names",
+            selectionMode=QAbstractItemView.ExtendedSelection,
+            callback=self._replot,
+        )
         self.spectra_list.setMinimumWidth(280)
         self.spectra_list.setMinimumHeight(220)
-        self.spectra_list.itemSelectionChanged.connect(self._replot)
-        layout.addWidget(self.spectra_list)
 
-        select_all = QPushButton("Select all", options)
-        select_all.clicked.connect(self.spectra_list.selectAll)
-        layout.addWidget(select_all)
+        gui.button(
+            options,
+            self,
+            "Select all",
+            callback=self._select_all_spectra,
+        )
 
-        self.legend_checkbox = QCheckBox("Show legend", options)
-        self.legend_checkbox.setChecked(self.show_legend)
-        self.legend_checkbox.toggled.connect(self._legend_changed)
-        layout.addWidget(self.legend_checkbox)
+        gui.checkBox(
+            options,
+            self,
+            "show_legend",
+            "Show legend",
+            callback=self._replot,
+        )
+        gui.checkBox(
+            options,
+            self,
+            "reverse_wavelength_axis",
+            "Reverse wavelength axis",
+            callback=self._replot,
+        )
+        gui.rubber(self.controlArea)
 
-        self.reverse_checkbox = QCheckBox("Reverse wavelength axis", options)
-        self.reverse_checkbox.setChecked(self.reverse_wavelength_axis)
-        self.reverse_checkbox.toggled.connect(self._reverse_axis_changed)
-        layout.addWidget(self.reverse_checkbox)
+    @staticmethod
+    def _normalise_combo_setting(
+        value: str | int,
+        choices: tuple[str, ...],
+        *,
+        default: str,
+    ) -> str:
+        """Convert settings saved by an index-based combo box to text."""
 
-        self.controlArea.layout().addWidget(options)
-        self.controlArea.layout().addStretch(1)
+        if isinstance(value, int):
+            if 0 <= value < len(choices):
+                return choices[value]
+            return default
 
+        if value in choices:
+            return value
+
+        return default
+        
     def _build_plot(self) -> None:
         pg.setConfigOption("background", "w")
         pg.setConfigOption("foreground", "k")
@@ -181,73 +221,60 @@ class OWCDSpectraPlot(OWWidget):
         self._populate_spectra()
         self._replot()
 
-    def _stage_changed(self, stage: str) -> None:
-        self.selected_stage = stage
+    def _stage_changed(self) -> None:
         self._populate_spectra()
-        self._replot()
-
-    def _colour_scale_changed(self, scale_name: str) -> None:
-        self.colour_scale = scale_name
-        self._replot()
-
-    def _legend_changed(self, checked: bool) -> None:
-        self.show_legend = checked
-        self._replot()
-
-    def _reverse_axis_changed(self, checked: bool) -> None:
-        self.reverse_wavelength_axis = checked
         self._replot()
 
     def _matching_variables(self) -> list[ContinuousVariable]:
         if self.data is None:
             return []
+
         variables = [
             variable
             for variable in self.data.domain.attributes
             if isinstance(variable, ContinuousVariable)
         ]
-        stage = self.stage_combo.currentText()
-        if stage == "All spectra":
+        if self.selected_stage == "All spectra":
             return variables
-        suffix = f" | {stage}"
-        return [variable for variable in variables if variable.name.endswith(suffix)]
+
+        suffix = f" | {self.selected_stage}"
+        return [
+            variable for variable in variables if variable.name.endswith(suffix)
+        ]
 
     def _populate_spectra(self) -> None:
-        selected = {
-            item.data(Qt.UserRole) for item in self.spectra_list.selectedItems()
-        }
-        self.spectra_list.blockSignals(True)
-        self.spectra_list.clear()
-        for variable in self._matching_variables():
-            item = QListWidgetItem(variable.name)
-            item.setData(Qt.UserRole, variable.name)
-            self.spectra_list.addItem(item)
-            if not selected or variable.name in selected:
-                item.setSelected(True)
-        self.spectra_list.blockSignals(False)
+        names = [variable.name for variable in self._matching_variables()]
+
+        # Assigning through the bound attributes allows gui.listBox to update
+        # its model and selection without direct QListWidget manipulation.
+        self.spectra_names = names
+        self.selected_spectra = list(range(len(names)))
+
+    def _select_all_spectra(self) -> None:
+        self.selected_spectra = list(range(len(self.spectra_names)))
+        self._replot()
 
     def _wavelength(self) -> np.ndarray | None:
         if self.data is None:
             return None
+
         try:
             variable = self.data.domain["Wavelength"]
         except KeyError:
             self.Error.missing_wavelength()
             return None
+
         if variable not in self.data.domain.metas or not isinstance(
             variable, ContinuousVariable
         ):
             self.Error.missing_wavelength()
             return None
+
         wavelength = np.asarray(self.data.get_column(variable), dtype=float)
         if np.isnan(wavelength).any():
             self.Error.invalid_wavelength()
             return None
         return wavelength
-
-    def _line_width_changed(self, width: float) -> None:
-        self.line_width = width
-        self._replot()
 
     def _replot(self) -> None:
         self.plot_item.clear()
@@ -258,28 +285,25 @@ class OWCDSpectraPlot(OWWidget):
 
         if self.data is None:
             return
+
         wavelength = self._wavelength()
         if wavelength is None:
             return
 
-        variable_by_name = {
-            variable.name: variable for variable in self._matching_variables()
-        }
-        selected_names = [
-            item.data(Qt.UserRole) for item in self.spectra_list.selectedItems()
-        ]
+        variables = self._matching_variables()
         selected_variables = [
-            variable_by_name[name]
-            for name in selected_names
-            if name in variable_by_name
+            variables[index]
+            for index in self.selected_spectra
+            if 0 <= index < len(variables)
         ]
         if not selected_variables:
-            if not variable_by_name:
+            if not variables:
                 self.Error.no_numeric_spectra()
             return
 
         colours = colours_from_scale(
-            self.colour_scale_combo.currentText(), len(selected_variables)
+            self.colour_scale,
+            len(selected_variables),
         )
         for colour, variable in zip(colours, selected_variables):
             intensity = np.asarray(self.data.get_column(variable), dtype=float)
@@ -288,9 +312,7 @@ class OWCDSpectraPlot(OWWidget):
             curve = self.plot_item.plot(
                 wavelength[valid],
                 intensity[valid],
-                pen=pg.mkPen(colour, 
-                             width=self.line_width_spin.value(),
-                             ),
+                pen=pg.mkPen(colour, width=self.line_width),
             )
             if self.show_legend:
                 self.legend.addItem(curve, display_name)

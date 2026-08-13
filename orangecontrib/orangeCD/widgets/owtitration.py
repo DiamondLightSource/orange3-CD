@@ -6,6 +6,11 @@ from typing import Sequence
 
 import pandas as pd
 
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from Orange.widgets import gui
+from Orange.widgets.settings import Setting
+from Orange.widgets.widget import Msg, OWWidget, Output
+
 
 class TitrationMode(str, Enum):
     FIXED = "fixed"
@@ -594,69 +599,34 @@ class CDTitrationCalculator:
             rows=rows,
         )
 
-
-# Orange widget GUI
-from AnyQt.QtCore import QAbstractTableModel, QModelIndex, Qt
-from AnyQt.QtWidgets import (
-    QAbstractItemView,
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
-    QTableView,
-    QVBoxLayout,
-    QWidget,
-)
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
-from Orange.widgets.settings import Setting
-from Orange.widgets.widget import Msg, OWWidget, Output
-
-
-class DataFrameModel(QAbstractTableModel):
-    """Read-only Qt model used to display a pandas DataFrame."""
-
-    def __init__(self, dataframe: pd.DataFrame | None = None) -> None:
+class DataFrameModel(gui.QtCore.QAbstractTableModel):
+    """Read-only pandas DataFrame model."""
+    def __init__(self, dataframe=None):
         super().__init__()
         self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
 
-    def set_dataframe(self, dataframe: pd.DataFrame) -> None:
-        self.beginResetModel()
-        self._dataframe = dataframe.copy()
-        self.endResetModel()
+    def set_dataframe(self, dataframe):
+        self.beginResetModel(); self._dataframe = dataframe.copy(); self.endResetModel()
 
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._dataframe.index)
+    def rowCount(self, parent=gui.QtCore.QModelIndex()):
+        return 0 if parent.isValid() else len(self._dataframe)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+    def columnCount(self, parent=gui.QtCore.QModelIndex()):
         return 0 if parent.isValid() else len(self._dataframe.columns)
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid():
-            return None
-
-        if role in (Qt.DisplayRole, Qt.EditRole):
-            value = self._dataframe.iat[index.row(), index.column()]
-            if pd.isna(value):
-                return ""
-            if isinstance(value, float):
-                return f"{value:g}"
-            return str(value)
-
-        if role == Qt.TextAlignmentRole:
-            value = self._dataframe.iat[index.row(), index.column()]
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                return int(Qt.AlignRight | Qt.AlignVCenter)
-
+    def data(self, index, role=gui.QtCore.Qt.DisplayRole):
+        if not index.isValid(): return None
+        value = self._dataframe.iat[index.row(), index.column()]
+        if role in (gui.QtCore.Qt.DisplayRole, gui.QtCore.Qt.EditRole):
+            if pd.isna(value): return ""
+            return f"{value:g}" if isinstance(value, float) else str(value)
+        if role == gui.QtCore.Qt.TextAlignmentRole and isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(gui.QtCore.Qt.AlignRight | gui.QtCore.Qt.AlignVCenter)
         return None
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
-        if role != Qt.DisplayRole:
-            return None
-        if orientation == Qt.Horizontal:
+    def headerData(self, section, orientation, role=gui.QtCore.Qt.DisplayRole):
+        if role != gui.QtCore.Qt.DisplayRole: return None
+        if orientation == gui.QtCore.Qt.Horizontal:
             return str(self._dataframe.columns[section]).replace("_", " ").title()
         return str(section + 1)
 
@@ -672,16 +642,12 @@ class OWTitrationCalculator(OWWidget):
     class Outputs:
         data = Output("Titration Table", Table)
 
-    # Strings are intentional: every control is a text box and validation occurs
-    # as one operation when the calculation is run.
     starting_cell_volume = Setting("500.0")
     stock_con_a = Setting("468.0")
     working_con_a = Setting("19.659")
     stock_b_concentrations = Setting("2000, 4000, 8000")
     stock_b_molar_equiv = Setting("2.75")
-    ratios = Setting(
-        "1.6, 2.71, 3.14, 6.282, 10, 20,"
-    )
+    ratios = Setting("1.6, 2.71, 3.14, 6.282, 10, 20,")
     target_min_volume = Setting("2.0")
     target_max_volume = Setting("20.0")
     mode = Setting("fixed")
@@ -689,19 +655,20 @@ class OWTitrationCalculator(OWWidget):
     class Error(OWWidget.Error):
         invalid_input = Msg("{}")
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self._editors: dict[str, QLineEdit | QPlainTextEdit] = {}
+        modes = tuple(item.value for item in TitrationMode)
+        if isinstance(self.mode, int):
+            self.mode = modes[self.mode] if 0 <= self.mode < len(modes) else modes[0]
+        elif self.mode not in modes:
+            self.mode = modes[0]
         self._build_controls()
         self._build_table()
         self.calculate()
 
-    def _build_controls(self) -> None:
-        box = QGroupBox("Titration inputs", self.controlArea)
-        form = QFormLayout(box)
-        self.controlArea.layout().addWidget(box)
-
-        fields = (
+    def _build_controls(self):
+        box = gui.widgetBox(self.controlArea, "Titration inputs")
+        for label, value in (
             ("Starting cell volume", "starting_cell_volume"),
             ("Stock concentration A", "stock_con_a"),
             ("Working concentration A", "working_con_a"),
@@ -709,159 +676,84 @@ class OWTitrationCalculator(OWWidget):
             ("Stock B molar equivalent", "stock_b_molar_equiv"),
             ("Target minimum volume", "target_min_volume"),
             ("Target maximum volume", "target_max_volume"),
+        ):
+            gui.lineEdit(box, self, value, label=label, orientation="horizontal", callback=self.calculate)
+
+        gui.widgetLabel(box, "Molar ratios")
+        self.ratios_editor = gui.QtWidgets.QPlainTextEdit(self.ratios, box)
+        self.ratios_editor.setMinimumHeight(90)
+        self.ratios_editor.setPlaceholderText("Enter comma-separated molar ratios")
+        self.ratios_editor.textChanged.connect(self._ratios_changed)
+        box.layout().addWidget(self.ratios_editor)
+
+        gui.comboBox(
+            box, self, "mode", label="Mode",
+            items=tuple(item.value for item in TitrationMode),
+            sendSelectedValue=True, valueType=str,
+            callback=self.calculate, orientation="horizontal",
         )
-
-        for label, attribute in fields:
-            editor = QLineEdit(str(getattr(self, attribute)), box)
-            editor.setObjectName(attribute)
-            editor.editingFinished.connect(self.calculate)
-            form.addRow(label, editor)
-            self._editors[attribute] = editor
-
-        ratios_editor = QPlainTextEdit(self.ratios, box)
-        ratios_editor.setObjectName("ratios")
-        ratios_editor.setMinimumHeight(90)
-        ratios_editor.setPlaceholderText(
-            "Enter comma-separated molar ratios"
-        )
-        form.addRow("Molar ratios", ratios_editor)
-        self._editors["ratios"] = ratios_editor
-
-        self.mode_combo = QComboBox(box)
-        for mode in TitrationMode:
-            self.mode_combo.addItem(mode.value.title(), mode.value)
-        current_mode = self.mode_combo.findData(self.mode)
-        if current_mode >= 0:
-            self.mode_combo.setCurrentIndex(current_mode)
-        self.mode_combo.currentIndexChanged.connect(self.calculate)
-        form.addRow("Mode", self.mode_combo)
-
-        note = QLabel(
-            "Enter comma-separated values for Stock B concentrations and "
-            "Molar ratios. Concentrations must use consistent units.",
-            box,
-        )
+        note = gui.widgetLabel(box, "Enter comma-separated values for Stock B concentrations and Molar ratios. Concentrations must use consistent units.")
         note.setWordWrap(True)
-        form.addRow(note)
+        gui.button(box, self, "Calculate", callback=self.calculate)
+        gui.rubber(self.controlArea)
 
-        button = QPushButton("Calculate", box)
-        button.clicked.connect(self.calculate)
-        form.addRow(button)
-        self.controlArea.layout().addStretch(1)
+    def _ratios_changed(self):
+        self.ratios = self.ratios_editor.toPlainText().strip()
 
-    def _build_table(self) -> None:
-        container = QWidget(self.mainArea)
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self.summary_label = QLabel(container)
+    def _build_table(self):
+        box = gui.vBox(self.mainArea)
+        self.summary_label = gui.widgetLabel(box, "")
         self.summary_label.setWordWrap(True)
-        layout.addWidget(self.summary_label)
-
         self.table_model = DataFrameModel()
-        self.table_view = QTableView(container)
+        self.table_view = gui.TableView(box)
         self.table_view.setModel(self.table_model)
         self.table_view.setAlternatingRowColors(True)
-        self.table_view.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table_view.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeToContents
-        )
+        self.table_view.setSelectionBehavior(gui.QtWidgets.QAbstractItemView.SelectRows)
+        self.table_view.setEditTriggers(gui.QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table_view.horizontalHeader().setSectionResizeMode(gui.QtWidgets.QHeaderView.ResizeToContents)
         self.table_view.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table_view)
-        self.mainArea.layout().addWidget(container)
+        box.layout().addWidget(self.table_view)
 
     @staticmethod
-    def _parse_float_list(text: str, field_name: str) -> list[float]:
-        parts = [part.strip() for part in text.replace(";", ",").split(",")]
-        parts = [part for part in parts if part]
-        if not parts:
-            raise ValueError(f"{field_name} must contain at least one value")
-        try:
-            return [float(part) for part in parts]
-        except ValueError as exc:
-            raise ValueError(
-                f"{field_name} must be a comma-separated list of numbers"
-            ) from exc
+    def _parse_float_list(text, field_name):
+        parts = [part.strip() for part in text.replace(";", ",").replace("\n", ",").split(",") if part.strip()]
+        if not parts: raise ValueError(f"{field_name} must contain at least one value")
+        try: return [float(part) for part in parts]
+        except ValueError as exc: raise ValueError(f"{field_name} must be a comma-separated list of numbers") from exc
 
-    def _read_controls(self) -> None:
-        for attribute, editor in self._editors.items():
-            if isinstance(editor, QPlainTextEdit):
-                value = editor.toPlainText().strip()
-            else:
-                value = editor.text().strip()
-            setattr(self, attribute, value)
-
-        self.mode = str(self.mode_combo.currentData())
-
-    def calculate(self) -> None:
+    def calculate(self):
         self.Error.clear()
-        self._read_controls()
-
         try:
-            mode_text = self.mode.lower()
-            mode = TitrationMode(mode_text)
+            mode = TitrationMode(self.mode)
             ratios = self._parse_float_list(self.ratios, "Molar ratios")
-            stock_concentrations = self._parse_float_list(
-                self.stock_b_concentrations,
-                "Stock B concentrations",
-            )
-
+            stocks = self._parse_float_list(self.stock_b_concentrations, "Stock B concentrations")
             calculator = CDTitrationCalculator(
-                starting_cell_volume=float(self.starting_cell_volume),
-                stock_con_a=float(self.stock_con_a),
-                working_con_a=float(self.working_con_a),
-                stock_b_concentrations=stock_concentrations,
+                starting_cell_volume=float(self.starting_cell_volume), stock_con_a=float(self.stock_con_a),
+                working_con_a=float(self.working_con_a), stock_b_concentrations=stocks,
                 stock_b_molar_equiv=float(self.stock_b_molar_equiv),
             )
-            points = calculator.create_points(
-                ratios=ratios,
-                mode=mode,
-                target_min=float(self.target_min_volume),
-                target_max=float(self.target_max_volume),
-            )
+            points = calculator.create_points(ratios=ratios, mode=mode, target_min=float(self.target_min_volume), target_max=float(self.target_max_volume))
             result = calculator.calculate(mode=mode, points=points)
             dataframe = result.result_to_dataframe()
         except (TypeError, ValueError) as exc:
-            self.table_model.set_dataframe(pd.DataFrame())
-            self.summary_label.setText("No result")
-            self.Error.invalid_input(str(exc))
-            self.Outputs.data.send(None)
-            return
+            self.table_model.set_dataframe(pd.DataFrame()); self.summary_label.setText("No result")
+            self.Error.invalid_input(str(exc)); self.Outputs.data.send(None); return
 
         self.table_model.set_dataframe(dataframe)
         summary = f"Volume of solution A: {result.volume_solution_a:g}"
         if result.mode == TitrationMode.INCREASING:
-            summary += (
-                f" | Initial buffer volume: {result.volume_buffer:g}"
-                f" | Added volume within 15% limit: "
-                f"{'yes' if result.within_limit else 'no'}"
-            )
+            summary += f" | Initial buffer volume: {result.volume_buffer:g} | Added volume within 15% limit: {'yes' if result.within_limit else 'no'}"
         self.summary_label.setText(summary)
         self.Outputs.data.send(self._to_orange_table(dataframe))
 
     @staticmethod
-    def _to_orange_table(dataframe: pd.DataFrame) -> Table:
-        numeric_columns = [
-            column
-            for column in dataframe.columns
-            if pd.api.types.is_numeric_dtype(dataframe[column])
-            and not pd.api.types.is_bool_dtype(dataframe[column])
-        ]
-        meta_columns = [
-            column for column in dataframe.columns if column not in numeric_columns
-        ]
-
-        attributes = [ContinuousVariable(str(column)) for column in numeric_columns]
-        metas = [StringVariable(str(column)) for column in meta_columns]
-        domain = Domain(attributes, metas=metas)
-
-        x = dataframe[numeric_columns].to_numpy(dtype=float)
-        meta_values = dataframe[meta_columns].astype(str).to_numpy(dtype=object)
-        return Table.from_numpy(domain, x, metas=meta_values)
+    def _to_orange_table(dataframe):
+        numeric = [c for c in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[c]) and not pd.api.types.is_bool_dtype(dataframe[c])]
+        meta = [c for c in dataframe.columns if c not in numeric]
+        domain = Domain([ContinuousVariable(str(c)) for c in numeric], metas=[StringVariable(str(c)) for c in meta])
+        return Table.from_numpy(domain, dataframe[numeric].to_numpy(dtype=float), metas=dataframe[meta].astype(str).to_numpy(dtype=object))
 
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
-
     WidgetPreview(OWTitrationCalculator).run()

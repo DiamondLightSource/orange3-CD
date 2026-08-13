@@ -1,4 +1,4 @@
-"""Orange widget for reading and processing circular-dichroism titration CSVs."""
+"""Read and process circular-dichroism titration CSV files in Orange."""
 
 from __future__ import annotations
 
@@ -8,23 +8,8 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
-from AnyQt.QtCore import QAbstractTableModel, QModelIndex, Qt
-from AnyQt.QtWidgets import (
-    QAbstractItemView,
-    QFileDialog,
-    QFormLayout,
-    QGroupBox,
-    QHeaderView,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QPushButton,
-    QTableView,
-    QVBoxLayout,
-    QWidget,
-)
 from Orange.data import ContinuousVariable, Domain, Table
+from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
@@ -58,15 +43,14 @@ def parse_remarks(lines: Iterable[str]) -> dict[str, str | None]:
 
 def parse_data(lines: list[str]) -> dict[str, pd.DataFrame]:
     """Parse all spectral data sections from a CD CSV file."""
-    data_dict: dict[str, pd.DataFrame] = {}
+    parsed: dict[str, pd.DataFrame] = {}
     sections = [index for index, line in enumerate(lines) if "Wavelength" in line]
 
     for start, stop in zip(sections, sections[1:]):
         section_title = lines[start - 1].split(",")[0].strip()
-        section_lines = lines[start + 2 : stop - 2]
         rows = [
             [float(value) for value in line.strip().split(",") if value]
-            for line in section_lines
+            for line in lines[start + 2 : stop - 2]
             if line.strip(",\n ")
         ]
         if not rows:
@@ -81,12 +65,13 @@ def parse_data(lines: list[str]) -> dict[str, pd.DataFrame]:
         dataframe = pd.DataFrame(
             output,
             index=values[:, 0],
-            columns=[str(i) for i in range(measurements.shape[1])] + ["Average"],
+            columns=[str(i) for i in range(measurements.shape[1])]
+            + ["Average"],
         )
         dataframe.index.name = "Wavelength"
-        data_dict[section_title] = dataframe
+        parsed[section_title] = dataframe
 
-    return data_dict
+    return parsed
 
 
 def file_parser(filename: str) -> dict[str, object]:
@@ -100,11 +85,7 @@ def file_parser(filename: str) -> dict[str, object]:
         if ":" in line.split(",")[0] and "#" not in line.split(",")[0]
     ]
     starts.append(len(lines))
-    """
-    TODO: add more parsers for sections of the input data 
-    """
-    parsers = {"Remarks": parse_remarks, 
-               "Data": parse_data}
+    parsers = {"Remarks": parse_remarks, "Data": parse_data}
     parsed: dict[str, object] = {}
 
     for start, stop in zip(starts, starts[1:]):
@@ -128,21 +109,25 @@ def average_cd_series(filename: str) -> pd.Series:
 
 
 def natural_key(path: str) -> list[object]:
-    return [int(part) if part.isdigit() else part.lower()
-            for part in re.split(r"(\d+)", Path(path).name)]
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", Path(path).name)
+    ]
 
 
 def orange_table_to_dataframe(table: Table) -> pd.DataFrame:
-    """Convert an Orange table's variables and metas to a pandas DataFrame."""
+    """Convert all Orange variables and metas to a pandas DataFrame."""
     columns: dict[str, np.ndarray] = {}
-    for variable in (*table.domain.attributes, *table.domain.class_vars,
-                     *table.domain.metas):
+    for variable in (
+        *table.domain.attributes,
+        *table.domain.class_vars,
+        *table.domain.metas,
+    ):
         columns[variable.name] = table.get_column(variable)
     return pd.DataFrame(columns)
 
 
 def flattened_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Return a display-ready copy with flattened column names."""
     output = dataframe.copy()
     output.columns = [
         " | ".join(map(str, column)) if isinstance(column, tuple) else str(column)
@@ -153,61 +138,18 @@ def flattened_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 
 def dataframe_to_orange_table(dataframe: pd.DataFrame) -> Table:
-    """Create an Orange table with wavelength stored as a continuous meta."""
+    """Create an Orange table with Wavelength as a continuous meta."""
     output = flattened_dataframe(dataframe)
-    wavelength = ContinuousVariable("Wavelength")
-    attribute_names = [column for column in output.columns if column != "Wavelength"]
+    attribute_names = [
+        column for column in output.columns if column != "Wavelength"
+    ]
     domain = Domain(
         [ContinuousVariable(column) for column in attribute_names],
-        metas=[wavelength],
+        metas=[ContinuousVariable("Wavelength")],
     )
     x = output[attribute_names].to_numpy(dtype=float)
     metas = output[["Wavelength"]].to_numpy(dtype=float)
     return Table.from_numpy(domain, x, metas=metas)
-
-
-class DataFrameModel(QAbstractTableModel):
-    """Read-only model used for the processed-data preview."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._dataframe = pd.DataFrame()
-
-    def set_dataframe(self, dataframe: pd.DataFrame) -> None:
-        self.beginResetModel()
-        self._dataframe = dataframe.copy()
-        self.endResetModel()
-
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._dataframe.index)
-
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._dataframe.columns)
-
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        value = self._dataframe.iat[index.row(), index.column()]
-        if role == Qt.DisplayRole:
-            if pd.isna(value):
-                return ""
-            if isinstance(value, (float, np.floating)):
-                return f"{value:g}"
-            return str(value)
-        if role == Qt.TextAlignmentRole and isinstance(
-            value, (int, float, np.integer, np.floating)
-        ):
-            return int(Qt.AlignRight | Qt.AlignVCenter)
-        return None
-
-    def headerData(
-        self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole
-    ):
-        if role != Qt.DisplayRole:
-            return None
-        if orientation == Qt.Horizontal:
-            return str(self._dataframe.columns[section])
-        return str(section + 1)
 
 
 class OWCDTitrationProcessing(OWWidget):
@@ -222,6 +164,10 @@ class OWCDTitrationProcessing(OWWidget):
     solution_b_file = Setting("")
     buffer_file = Setting("")
     data_files = Setting([])
+    selected_data_files = Setting([])
+
+    # Derived display values used by gui.listBox, not persistent settings.
+    data_file_names: list[str] = []
 
     class Inputs:
         titration = Input("Titration Table", Table)
@@ -239,99 +185,106 @@ class OWCDTitrationProcessing(OWWidget):
     def __init__(self) -> None:
         super().__init__()
         self.titration: Table | None = None
-        self._path_edits: dict[str, QLineEdit] = {}
         self._build_controls()
-        # self._build_main_area()
         self._refresh_file_list()
 
     def _build_controls(self) -> None:
-        references = QGroupBox("Reference files", self.controlArea)
-        reference_form = QFormLayout(references)
-        self.controlArea.layout().addWidget(references)
+        references = gui.widgetBox(self.controlArea, "Reference files")
+        self._add_reference_selector(
+            references,
+            "Solution A",
+            "solution_a_file",
+        )
+        self._add_reference_selector(
+            references,
+            "Solution B",
+            "solution_b_file",
+        )
+        self._add_reference_selector(
+            references,
+            "Buffer",
+            "buffer_file",
+        )
 
-        for label, setting_name in (
-            ("Solution A", "solution_a_file"),
-            ("Solution B", "solution_b_file"),
-            ("Buffer", "buffer_file"),
-        ):
-            row = QWidget(references)
-            layout = QHBoxLayout(row)
-            layout.setContentsMargins(0, 0, 0, 0)
-            edit = QLineEdit(str(getattr(self, setting_name)), row)
-            edit.setMinimumWidth(380)
-            edit.setToolTip(edit.text())
-            edit.textChanged.connect(edit.setToolTip)
-            edit.editingFinished.connect(self._read_reference_fields)
-            button = QPushButton("Browse…", row)
-            button.clicked.connect(
-                lambda _checked=False, name=setting_name: self._choose_reference(name)
-            )
-            layout.addWidget(edit, 1)
-            layout.addWidget(button)
-            reference_form.addRow(label, row)
-            self._path_edits[setting_name] = edit
+        data_box = gui.widgetBox(self.controlArea, "Titration data files")
+        self.data_file_list = gui.listBox(
+            data_box,
+            self,
+            "selected_data_files",
+            "data_file_names",
+            selectionMode=gui.QtWidgets.QAbstractItemView.ExtendedSelection,
+        )
+        self.data_file_list.setMinimumWidth(480)
+        self.data_file_list.setMinimumHeight(160)
 
-        data_box = QGroupBox("Titration data files", self.controlArea)
-        data_layout = QVBoxLayout(data_box)
-        self.data_file_list = QListWidget(data_box)
-        self.data_file_list.setMinimumHeight(150)
-        data_layout.addWidget(self.data_file_list)
+        buttons = gui.hBox(data_box)
+        gui.button(
+            buttons,
+            self,
+            "Select files…",
+            callback=self._choose_data_files,
+        )
+        gui.button(
+            buttons,
+            self,
+            "Clear",
+            callback=self._clear_data_files,
+        )
 
-        buttons = QHBoxLayout()
-        choose = QPushButton("Select files…", data_box)
-        choose.clicked.connect(self._choose_data_files)
-        clear = QPushButton("Clear", data_box)
-        clear.clicked.connect(self._clear_data_files)
-        buttons.addWidget(choose)
-        buttons.addWidget(clear)
-        data_layout.addLayout(buttons)
-        self.controlArea.layout().addWidget(data_box)
+        gui.button(
+            self.controlArea,
+            self,
+            "Process data",
+            callback=self.process,
+        )
+        gui.rubber(self.controlArea)
 
-        process_button = QPushButton("Process data", self.controlArea)
-        process_button.clicked.connect(self.process)
-        self.controlArea.layout().addWidget(process_button)
-        self.controlArea.layout().addStretch(1)
-
-    """
-    Initially had this as a kind of viewport to live preview the output data table, but it took up too much processing power
-
-    could be added back in if wanted
-    """
-    # def _build_main_area(self) -> None:
-    #     container = QWidget(self.mainArea)
-    #     layout = QVBoxLayout(container)
-    #     self.status_label = QLabel("No processed output", container)
-    #     self.status_label.setWordWrap(True)
-
-    #     self.preview_model = DataFrameModel()
-    #     self.preview = QTableView(container)
-    #     self.preview.setModel(self.preview_model)
-    #     self.preview.setAlternatingRowColors(True)
-    #     self.preview.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    #     self.preview.setSelectionBehavior(QAbstractItemView.SelectRows)
-    #     self.preview.horizontalHeader().setSectionResizeMode(
-    #         QHeaderView.ResizeToContents
-    #     )
-    #     self.preview.horizontalHeader().setStretchLastSection(True)
-
-    #     layout.addWidget(self.status_label)
-    #     layout.addWidget(self.preview, 1)
-    #     self.mainArea.layout().addWidget(container)
+    def _add_reference_selector(
+        self,
+        parent,
+        label: str,
+        setting_name: str,
+    ) -> None:
+        row = gui.hBox(parent)
+        editor = gui.lineEdit(
+            row,
+            self,
+            setting_name,
+            label=label,
+            orientation="horizontal",
+        )
+        editor.setMinimumWidth(380)
+        editor.setToolTip(str(getattr(self, setting_name)))
+        editor.textChanged.connect(editor.setToolTip)
+        gui.button(
+            row,
+            self,
+            "Browse…",
+            callback=lambda name=setting_name: self._choose_reference(name),
+        )
 
     def _choose_reference(self, setting_name: str) -> None:
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Select reference CSV", "", "CSV files (*.csv);;All files (*)"
+        filename, _ = gui.QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select reference CSV",
+            "",
+            "CSV files (*.csv);;All files (*)",
         )
         if filename:
             setattr(self, setting_name, filename)
-            self._path_edits[setting_name].setText(filename)
 
     def _choose_data_files(self) -> None:
-        filenames, _ = QFileDialog.getOpenFileNames(
-            self, "Select titration CSV files", "", "CSV files (*.csv);;All files (*)"
+        filenames, _ = gui.QtWidgets.QFileDialog.getOpenFileNames(
+            self,
+            "Select titration CSV files",
+            "",
+            "CSV files (*.csv);;All files (*)",
         )
         if filenames:
-            self.data_files = sorted(dict.fromkeys(filenames), key=natural_key)
+            self.data_files = sorted(
+                dict.fromkeys(filenames),
+                key=natural_key,
+            )
             self._refresh_file_list()
 
     def _clear_data_files(self) -> None:
@@ -340,12 +293,8 @@ class OWCDTitrationProcessing(OWWidget):
         self.Outputs.data.send(None)
 
     def _refresh_file_list(self) -> None:
-        self.data_file_list.clear()
-        self.data_file_list.addItems([Path(path).name for path in self.data_files])
-
-    def _read_reference_fields(self) -> None:
-        for name, edit in self._path_edits.items():
-            setattr(self, name, edit.text().strip())
+        self.data_file_names = [Path(path).name for path in self.data_files]
+        self.selected_data_files = list(range(len(self.data_file_names)))
 
     @Inputs.titration
     def set_titration(self, table: Table | None) -> None:
@@ -358,7 +307,6 @@ class OWCDTitrationProcessing(OWWidget):
     def process(self) -> None:
         self.Error.clear()
         self.Warning.clear()
-        self._read_reference_fields()
 
         if self.titration is None:
             self.Warning.no_titration()
@@ -412,7 +360,8 @@ class OWCDTitrationProcessing(OWWidget):
             )
 
             cd_data = pd.concat(
-                [average_cd_series(path) for path in self.data_files], axis=1
+                [average_cd_series(path) for path in self.data_files],
+                axis=1,
             )
             if cd_data.isna().any().any() or reference_data.isna().any().any():
                 raise ValueError(
@@ -425,62 +374,55 @@ class OWCDTitrationProcessing(OWWidget):
             }
             for index, series_name in enumerate(cd_data.columns):
                 raw = cd_data[series_name]
-
                 buffer_subtraction = (
                     raw - reference_data["buffer"]
                 ) * float(titration.iloc[index]["dilution_factor"])
-
                 sol_a_subtraction = (
                     buffer_subtraction
                     - reference_data["sol_A_buffer_subtracted"]
                 )
-
                 subtract_fraction_sol_b = (
                     sol_a_subtraction
-                    - (reference_data["sol_B_buffer_subtracted"]
-                    * float(titration.iloc[index]["normalised_molar_ratio"])
-                        )
+                    - reference_data["sol_B_buffer_subtracted"]
+                    * float(
+                        titration.iloc[index]["normalised_molar_ratio"]
+                    )
                 )
-
-                """
-                # TODO: 
-                #   this should be done properly, not hard coded into some flat region like this.
-                #   However, this approximately mimics what CDApps does at the moment:
-                #       1) define some region in the flat part of the signal
-                #       2) take an average 
-                #       3) subtract from across the whole spectrum 
-                #   may take some future unpicking, but hopefully not too much...
-                """
                 zero_level = subtract_fraction_sol_b.loc[:450].mean()
-
                 plus_sol_a = (
                     zero_level
                     + reference_data["sol_A_buffer_subtracted_zeroed"]
                 )
-
-                processed.update({
-                    (series_name, "raw_data"): raw.round(3),
-                    (series_name, "buffer_subtraction"): buffer_subtraction.round(3),
-                    (series_name, "sol_A_subtraction"): sol_a_subtraction.round(3),
-                    (series_name, "subtract_frac_sol_B"): subtract_fraction_sol_b.round(3),
-                    (series_name, "set_to_zero"): round(float(zero_level), 3),
-                    (series_name, "plus_sol_A"): plus_sol_a.round(3),
-                })
+                processed.update(
+                    {
+                        (series_name, "raw_data"): raw.round(3),
+                        (
+                            series_name,
+                            "buffer_subtraction",
+                        ): buffer_subtraction.round(3),
+                        (
+                            series_name,
+                            "sol_A_subtraction",
+                        ): sol_a_subtraction.round(3),
+                        (
+                            series_name,
+                            "subtract_frac_sol_B",
+                        ): subtract_fraction_sol_b.round(3),
+                        (series_name, "set_to_zero"): round(
+                            float(zero_level),
+                            3,
+                        ),
+                        (series_name, "plus_sol_A"): plus_sol_a.round(3),
+                    }
+                )
 
             output = pd.DataFrame(processed, index=cd_data.index)
             orange_output = dataframe_to_orange_table(output)
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
             self.Error.processing_failed(str(exc))
-            # self.status_label.setText("Processing failed")
-            # self.preview_model.set_dataframe(pd.DataFrame())
             self.Outputs.data.send(None)
             return
 
-        # self.status_label.setText(
-        #     f"Processed {len(self.data_files)} spectra at "
-        #     f"{len(output.index)} wavelengths; output has {len(output.columns) + 1} columns."
-        # )
-        # self.preview_model.set_dataframe(flattened_dataframe(output))
         self.Outputs.data.send(orange_output)
 
 
