@@ -443,7 +443,10 @@ class OWCDTitrationProcessing(OWWidget):
                     - reference_data["sol_B_buffer_subtracted"]
                     * float(titration.iloc[index]["normalised_molar_ratio"])
                 )
-                zero_level = self._zero_region_mean(subtract_fraction_sol_b)
+                zero_level = (
+                    subtract_fraction_sol_b - self._zero_region_mean(subtract_fraction_sol_b)
+                )
+
                 plus_sol_a = (
                     zero_level + reference_data["sol_A_buffer_subtracted_zeroed"]
                 )
