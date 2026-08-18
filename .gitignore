@@ -71,3 +71,6 @@ lockfiles/
 .ruff_cache/
 
 .example_data/
+
+notes/
+random_scripts/
