@@ -32,7 +32,7 @@ test = [
 orange_cd = "orangecontrib.orangeCD"
 
 [project.entry-points."orange.widgets"]
-"Orange CD" = "orangecontrib.orangeCD.widgets"
+"CD Titration" = "orangecontrib.orangeCD.widgets.titration"
 
 [tool.setuptools.packages.find]
 where = ["."]
