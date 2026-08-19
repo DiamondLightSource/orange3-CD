@@ -228,7 +228,7 @@ class OWCDTitrationProcessing(OWWidget):
         editor.textChanged.connect(editor.setToolTip)
         gui.button(
             row, self, "Browse…",
-            callback=lambda name=setting: self._choose_reference(name),
+            callback=lambda _checked=False, name=setting: self._choose_reference(name),
         )
 
     def _build_plot(self) -> None:
