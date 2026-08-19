@@ -203,7 +203,8 @@ class OWBindingPlot(OWWidget):
         self.Error.clear()
         self._fit_curve = None
         self.Outputs.fit_results.send(None)
-        self._update_variable_controls()
+        if self.data is not None:
+            self._update_variable_controls()
         self._redraw()
 
     def _update_variable_controls(self) -> None:
