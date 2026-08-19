@@ -8,6 +8,9 @@ Orange3 add on for Circular Dichroism analysis. Currently under development.
  - Finish documentation for titration widgets
  - Add tests for titration widgets
  - Make some icons for the titration widgets
+ - Fitting:
+   * Add additional fitting functional forms to the `Binding Plot` widget
+   * Port the fitting to lmfit for nicer reporting
 
 ### Longer term TODO
 
