@@ -40,7 +40,7 @@ include = ["orangecontrib.orangeCD*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"orangecontrib.orangeCD.widgets" = ["icons/*.svg"]
+"orangecontrib.orangeCD.widgets.titration" = ["icons/*.svg"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
