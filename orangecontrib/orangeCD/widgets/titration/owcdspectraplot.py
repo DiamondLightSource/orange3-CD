@@ -13,14 +13,14 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
-PROCESSING_STAGES = (
+PROCESSING_STAGES = [
     "All spectra",
     "raw_data",
     "buffer_subtraction",
     "sol_A_subtraction",
     "subtract_frac_sol_B",
     "plus_sol_A",
-)
+]
 
 COLOUR_SCALES = {
     "Viridis":      ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
@@ -67,12 +67,13 @@ class OWCDSpectraPlot(OWWidget):
     want_main_area = True
     resizing_enabled = True
 
-    selected_stage = Setting("plus_sol_A")
+    selected_stage = Setting("All spectra")
     colour_scale = Setting("Viridis")
     line_width = Setting(1.5)
     show_legend = Setting(True)
     reverse_wavelength_axis = Setting(False)
     selected_spectra = Setting([])
+    processing_stages = Setting(["All spectra"])
 
     # This is the list model displayed by gui.listBox. It is derived from the
     # input domain, so it is not persisted as a Setting.
@@ -89,11 +90,6 @@ class OWCDSpectraPlot(OWWidget):
     def __init__(self) -> None:
         super().__init__()
 
-        self.selected_stage = self._normalise_combo_setting(
-            self.selected_stage,
-            PROCESSING_STAGES,
-            default="plus_sol_A",
-        )
         self.colour_scale = self._normalise_combo_setting(
             self.colour_scale,
             tuple(COLOUR_SCALES),
@@ -107,12 +103,12 @@ class OWCDSpectraPlot(OWWidget):
     def _build_controls(self) -> None:
         options = gui.widgetBox(self.controlArea, "Plot options")
 
-        gui.comboBox(
+        self.stage_combo = gui.comboBox(
             options,
             self,
             "selected_stage",
             label="Processing stage",
-            items=PROCESSING_STAGES,
+            items=self.processing_stages,
             orientation="vertical",
             sendSelectedValue=True,
             callback=self._stage_changed,
@@ -218,9 +214,38 @@ class OWCDSpectraPlot(OWWidget):
     def set_data(self, data: Table | None) -> None:
         self.Error.clear()
         self.data = data
+
+        self._set_processing_stages()
         self._populate_spectra()
         self._replot()
 
+    def _set_processing_stages(self) -> None:
+        current = self.selected_stage
+
+        if self.data is None:
+            stages = ["All spectra"]
+        else:
+            variables = [
+                variable 
+                for variable in self.data.domain.attributes
+                if isinstance(variable, ContinuousVariable)
+            ]
+            stages = sorted({variable.name.split("|")[-1].strip() 
+                             for variable in variables
+                                })
+            stages.insert(0, "All spectra")
+        self.processing_stages = stages
+
+        self.stage_combo.clear()
+        self.stage_combo.addItems(stages)
+
+        if current in stages:
+            self.selected_stage = current
+            self.stage_combo.setCurrentText(current)
+        else:
+            self.selected_stage = stages[0]
+            self.stage_combo.setCurrentIndex(0)
+        
     def _stage_changed(self) -> None:
         self._populate_spectra()
         self._replot()
