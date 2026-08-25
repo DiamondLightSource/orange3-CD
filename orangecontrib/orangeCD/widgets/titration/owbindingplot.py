@@ -7,6 +7,8 @@ from __future__ import annotations
 import numpy as np
 import pyqtgraph as pg
 from scipy.optimize import curve_fit
+from lmfit import Model
+from lmfit.model import ModelResult
 
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
@@ -17,17 +19,37 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 DEFAULT_X = "Titration point"
 DEFAULT_Y = "Delta A"
 
-
+"""
+functions for fitting curves. These are pure function models, of form
+func(x: np.adarray, *args) -> nd.array, where func() performs some operation
+on x with the values in args
+"""
 def hill_equation(
+    x: np.ndarray,
+    v_max: float,
+    half_saturation: float,
+    hill_coefficient: float,
+) -> np.ndarray:
+    """Three-parameter Hill equation.
+
+    y = v_max * (x**n / (K_half**n + x**n))
+    """
+    x = np.asarray(x, dtype=float)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        x_power = np.power(x, hill_coefficient)
+        half_power = np.power(half_saturation, hill_coefficient)
+        return v_max * x_power / (half_power + x_power)
+
+def hill1_equation(
     x: np.ndarray,
     bottom: float,
     top: float,
     half_saturation: float,
     hill_coefficient: float,
 ) -> np.ndarray:
-    """Four-parameter Hill equation.
+    """Four-parameter Hill1 equation.
 
-    y = bottom + (top - bottom) * x**n / (K_half**n + x**n)
+    y = bottom + (top - bottom) * (x**n / (K_half**n + x**n))
     """
     x = np.asarray(x, dtype=float)
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
@@ -35,57 +57,147 @@ def hill_equation(
         half_power = np.power(half_saturation, hill_coefficient)
         return bottom + (top - bottom) * x_power / (half_power + x_power)
 
-
-def fit_hill_equation(
+def bihill_equation(
     x: np.ndarray,
-    y: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, float, float]:
-    """Fit a four-parameter Hill model and return parameters and diagnostics."""
+    p_m: float,
+    k_a: float,
+    h_a: float,
+    k_i: float,
+    h_i: float
+) -> np.ndarray:
+    """Five-parameter BiHill equation
+
+    y = p_m / ((1 + ((k_a/x)^h_a))*(1 + ((x/k_i)^h_i)))
+    """
+    x = np.asarray(x, dtype=float)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        term1 = 1 + np.power((k_a / x), h_a)
+        term2 = 1 + np.power((x / k_i), h_i)
+        den = term1 * term2
+        return p_m / den
+
+"""
+Fitting wrapper functions. These take the data to fit, and perform the fitting
+using lmfit, constructing the model and parameters using appropriate estimates.
+Before fitting, they check the input data is valid using validate_data().
+After fitting, a Table is constructed using the fit_result() function.
+"""
+def fit_hill(
+        x: np.ndarray,
+        y: np.ndarray, 
+        ):
+
+    x, y = validate_data(x, y)
+
+    top_guess = float(y[np.argmax(x)])
+    half_guess = float(np.median(x))
+    
+    model = Model(hill_equation)
+    params = model.make_params(v_max = top_guess,
+                               half_saturation = half_guess,
+                               hill_coefficient = dict(value = top_guess/2,
+                                                       min = 0, 
+                                                       max = top_guess)
+                               )
+    result = model.fit(y, params=params, x=x)
+
+    x_plt = np.linspace(x[0], x[-1])
+    y_plt = result.eval(x=x_plt)
+    y_err = result.eval_uncertainty(x=x_plt)
+
+    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+          
+def fit_hill1(
+        x: np.ndarray,
+        y: np.ndarray
+        ):
+    x, y = validate_data(x, y)
+    
+    bottom_guess = float(y[np.argmin(x)])
+    top_guess = float(y[np.argmax(x)])
+    half_guess = float(np.median(x))
+    
+    model = Model(hill1_equation)
+    params = model.make_params(bottom = bottom_guess,
+                               top = top_guess,
+                               half_saturation = half_guess,
+                               hill_coefficient = dict(value = (top_guess - bottom_guess)/2,
+                                                       min = 0, 
+                                                       max = top_guess)
+                               )
+    result = model.fit(y, params=params, x=x)
+    
+    x_plt = np.linspace(x[0], x[-1])
+    y_plt = result.eval(x=x_plt)
+    y_err = result.eval_uncertainty(x=x_plt)
+
+    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+
+def fit_bihill(
+        x: np.ndarray,
+        y: np.ndarray
+        ):
+
+    x, y = validate_data(x, y)
+    
+    model = Model(bihill_equation)
+    params = model.make_params(p_m = dict(value = y.max(), min = 0),
+                               k_a = dict(value = x[np.argmax(np.gradient(y))], min = 0),
+                               k_i = dict(value = x[np.argmin(np.gradient(y))], min = 0),
+                               # possibly could estimate this better in future?
+                               h_a = dict(value = 1, min = 0,),
+                               h_i = dict(value = 1, min = 0,),
+                               )
+    result = model.fit(y, params=params, x=x)
+    
+    x_plt = np.linspace(x[0], x[-1])
+    y_plt = result.eval(x=x_plt)
+    y_err = result.eval_uncertainty(x=x_plt)
+
+    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+
+def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     valid = np.isfinite(x) & np.isfinite(y)
     x = x[valid]
     y = y[valid]
-
+    
     if x.size < 4:
         raise ValueError("At least four finite data points are required for a Hill fit")
     if np.any(x < 0):
         raise ValueError("Hill fitting requires non-negative x values")
     if np.unique(x).size < 4:
         raise ValueError("At least four distinct x values are required for a Hill fit")
-
+    
     positive_x = x[x > 0]
     if positive_x.size == 0:
         raise ValueError("At least one x value must be greater than zero")
 
-    bottom_guess = float(y[np.argmin(x)])
-    top_guess = float(y[np.argmax(x)])
-    half_guess = float(np.median(positive_x))
-    span = max(float(np.ptp(y)), abs(top_guess), abs(bottom_guess), 1.0)
+    return (positive_x, y)
 
-    parameters, covariance = curve_fit(
-        hill_equation,
-        x,
-        y,
-        p0=(bottom_guess, top_guess, half_guess, 1.0),
-        bounds=(
-            (-np.inf, -np.inf, np.finfo(float).eps, 0.01),
-            (np.inf, np.inf, np.inf, 20.0),
-        ),
-        maxfev=50000,
-    )
+def fit_result(lmfit_result: ModelResult):
 
-    fitted = hill_equation(x, *parameters)
-    residuals = y - fitted
-    residual_sum_squares = float(np.sum(residuals**2))
-    total_sum_squares = float(np.sum((y - np.mean(y)) ** 2))
-    r_squared = (
-        1.0 - residual_sum_squares / total_sum_squares
-        if total_sum_squares > 0
-        else np.nan
+    parameter_names = list(lmfit_result.params.keys()) + ['r_sq', 'red_chi_sq']
+    vals = [i.value for i in lmfit_result.params.values()] + [lmfit_result.rsquared, lmfit_result.redchi]
+    errs = [i.stderr for i in lmfit_result.params.values()] + [np.nan, np.nan]
+
+    domain = Domain(
+        [
+            ContinuousVariable("Estimate"),
+            ContinuousVariable("Standard Error"),
+        ],
+        metas=[StringVariable("Parameter")],
     )
-    rmse = float(np.sqrt(np.mean(residuals**2)))
-    return parameters, covariance, r_squared, rmse
+    result = Table.from_numpy(
+        domain,
+        np.column_stack((vals, errs)),
+        metas=np.asarray(parameter_names, dtype=object).reshape(-1, 1),
+    )
+    result.name = "Curve fit"
+
+    return result
 
 
 class OWBindingPlot(OWWidget):
@@ -106,6 +218,9 @@ class OWBindingPlot(OWWidget):
     y_variable = Setting(DEFAULT_Y)
     point_size = Setting(9)
     line_width = Setting(2.0)
+    fitter_function = Setting(0)
+    fit_model = Setting("Hill model (3 variable)")
+
 
     class Error(OWWidget.Error):
         no_continuous_data = Msg("Input contains no continuous variables.")
@@ -117,7 +232,7 @@ class OWBindingPlot(OWWidget):
         self.data: Table | None = None
         self.variable_names: list[str] = []
         self._updating_controls = False
-        self._fit_curve: tuple[np.ndarray, np.ndarray] | None = None
+        self._fit_curve: dict[np.ndarray, np.ndarray, np.ndarray] | None = None
         self._build_controls()
         self._build_plot()
 
@@ -173,15 +288,54 @@ class OWBindingPlot(OWWidget):
         )
 
         fit_box = gui.widgetBox(self.controlArea, "Hill fit")
-        equation = gui.widgetLabel(
+        self.fit_model_dict = {
+            0: {
+                "text": "Hill model (3 variable)",
+                "function": hill_equation, 
+                "fitter": fit_hill, 
+                "equation": "y = v_max * (x**n / (K_half**n + x**n))"
+                },
+            1: {
+                "text": "Hill model (4 variable)",
+                "function": hill1_equation,
+                "fitter": fit_hill1,
+                "equation": "y = bottom + (top - bottom) * (x**n / (K_half**n + x**n))"
+                },
+            2: {    
+                "text": "BiHill model",
+                "function": bihill_equation,
+                "fitter": fit_bihill,
+                "equation": "y = p_m / ((1 + ((k_a/x)^h_a))*(1 + ((x/k_i)^h_i)))"
+                }
+                }
+        self.fit_model_list = tuple(i["text"] for i in self.fit_model_dict.values())
+        # need to initialise these here otherwise get mixed up in class, possibly
+        self.fit_model_func = self.fit_model_dict.get(self.fitter_function).get("function")
+        self.fit_model_fitter = self.fit_model_dict.get(self.fitter_function).get("fitter")
+        self.equation_str = self.fit_model_dict.get(self.fitter_function).get("equation")
+
+        self.equation = gui.label(
             fit_box,
-            "y = bottom + (top - bottom) x^n / (K_half^n + x^n)",
+            self,
+            f"{self.equation_str}"
         )
-        equation.setWordWrap(True)
+        self.equation.setWordWrap(True)
+
+        gui.comboBox(
+            fit_box,
+            self,
+            "fit_model",
+            label="Select fit model",
+            items=self.fit_model_list,
+            sendSelectedValue=False,
+            valueType=int,
+            orientation="horizontal",
+            callback=self._select_fit_model_changed,
+        )
         gui.button(
             fit_box,
             self,
-            "Fit Hill equation",
+            "Fit model",
             callback=self.fit,
         )
         gui.button(
@@ -257,18 +411,23 @@ class OWBindingPlot(OWWidget):
     def _xy_data(self) -> tuple[np.ndarray, np.ndarray]:
         if self.data is None:
             raise ValueError("No input data")
+
         try:
             x_variable = self.data.domain[self.x_variable]
             y_variable = self.data.domain[self.y_variable]
         except KeyError as exc:
             raise ValueError("Select valid x and y variables") from exc
+
         if not isinstance(x_variable, ContinuousVariable) or not isinstance(
-            y_variable, ContinuousVariable
-        ):
+            y_variable, ContinuousVariable):
             raise ValueError("The selected x and y variables must be continuous")
+
+        _x = np.asarray(self.data.get_column(x_variable), dtype=float)
+        _y = np.asarray(self.data.get_column(y_variable), dtype=float)
+
         return (
-            np.asarray(self.data.get_column(x_variable), dtype=float),
-            np.asarray(self.data.get_column(y_variable), dtype=float),
+            _x[np.argsort(_x)],
+            _y[np.argsort(_x)]*1e6 # TODO: clear up this unit business, struggles to fit at natural intensity
         )
 
     def _redraw(self) -> None:
@@ -292,12 +451,41 @@ class OWBindingPlot(OWWidget):
             symbolPen=pg.mkPen("#1f77b4"),
         )
         if self._fit_curve is not None:
-            fit_x, fit_y = self._fit_curve
-            self.plot.plot(
+            fit_x = self._fit_curve["x_plt"]
+            fit_y = self._fit_curve["y_plt"]
+            y_err = self._fit_curve["y_err"]
+
+            # Best-fit line
+            fit_curve = self.plot.plot(
                 fit_x,
                 fit_y,
                 pen=pg.mkPen("#d62728", width=self.line_width),
             )
+
+            # Upper/lower bounds of confidence interval
+            upper_curve = pg.PlotCurveItem(
+                fit_x,
+                fit_y + y_err,
+                pen=None,
+            )
+
+            lower_curve = pg.PlotCurveItem(
+                fit_x,
+                fit_y - y_err,
+                pen=None,
+            )
+
+            self.plot.addItem(upper_curve)
+            self.plot.addItem(lower_curve)
+
+            # Filled uncertainty region
+            fill = pg.FillBetweenItem(
+                upper_curve,
+                lower_curve,
+                brush=pg.mkBrush(214, 39, 40, 80),  # RGBA, alpha ~30%
+            )
+
+            self.plot.addItem(fill)
         self.plot.enableAutoRange()
 
     def clear_fit(self) -> None:
@@ -306,6 +494,11 @@ class OWBindingPlot(OWWidget):
         self.Outputs.fit_results.send(None)
         self._redraw()
 
+    def _select_fit_model_changed(self) -> None:
+        self.fit_model_func = self.fit_model_dict.get(self.fit_model).get("function")
+        self.fit_model_fitter = self.fit_model_dict.get(self.fit_model).get("fitter")
+        self.equation.setText(self.fit_model_dict.get(self.fit_model).get("equation"))
+
     def fit(self) -> None:
         self.Error.clear()
         if self.data is None:
@@ -313,7 +506,7 @@ class OWBindingPlot(OWWidget):
             return
         try:
             x, y = self._xy_data()
-            parameters, covariance, r_squared, rmse = fit_hill_equation(x, y)
+            fit_result, self._fit_curve = self.fit_model_fitter(x, y)
         except (ValueError, RuntimeError, FloatingPointError) as exc:
             self._fit_curve = None
             self.Error.fit_failed(str(exc))
@@ -321,47 +514,9 @@ class OWBindingPlot(OWWidget):
             self._redraw()
             return
 
-        valid_x = x[np.isfinite(x) & np.isfinite(y)]
-        fit_x = np.linspace(float(np.min(valid_x)), float(np.max(valid_x)), 500)
-        self._fit_curve = (fit_x, hill_equation(fit_x, *parameters))
         self._redraw()
 
-        standard_errors = np.sqrt(np.diag(covariance))
-        parameter_names = [
-            "bottom",
-            "top",
-            "K_half",
-            "Hill coefficient",
-            "R squared",
-            "RMSE",
-        ]
-        estimates = np.concatenate((parameters, [r_squared, rmse]))
-        errors = np.concatenate((standard_errors, [np.nan, np.nan]))
-
-        domain = Domain(
-            [
-                ContinuousVariable("Estimate"),
-                ContinuousVariable("Standard Error"),
-            ],
-            metas=[StringVariable("Parameter")],
-        )
-        result = Table.from_numpy(
-            domain,
-            np.column_stack((estimates, errors)),
-            metas=np.asarray(parameter_names, dtype=object).reshape(-1, 1),
-        )
-        result.name = f"Hill fit: {self.y_variable} vs {self.x_variable}"
-        result.attributes.update(
-            {
-                "model": (
-                    "bottom + (top - bottom) * x^n / (K_half^n + x^n)"
-                ),
-                "x_variable": self.x_variable,
-                "y_variable": self.y_variable,
-                "point_count": int(valid_x.size),
-            }
-        )
-        self.Outputs.fit_results.send(result)
+        self.Outputs.fit_results.send(fit_result)
 
 
 if __name__ == "__main__":
