@@ -175,7 +175,7 @@ def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]
     if positive_x.size == 0:
         raise ValueError("At least one x value must be greater than zero")
 
-    return (positive_x, y)
+    return (x, y)
 
 def fit_result(lmfit_result: ModelResult):
 
@@ -425,9 +425,10 @@ class OWBindingPlot(OWWidget):
         _x = np.asarray(self.data.get_column(x_variable), dtype=float)
         _y = np.asarray(self.data.get_column(y_variable), dtype=float)
 
+        # important for lmfit to ensure the values are sorted beforehand
         return (
             _x[np.argsort(_x)],
-            _y[np.argsort(_x)]*1e6 # TODO: clear up this unit business, struggles to fit at natural intensity
+            _y[np.argsort(_x)]#*1e6 # TODO: clear up this unit business, struggles to fit at natural intensity
         )
 
     def _redraw(self) -> None:
