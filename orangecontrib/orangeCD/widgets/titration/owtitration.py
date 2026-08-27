@@ -131,8 +131,8 @@ class CDTitrationCalculator:
         # self.stock_b_molar_equiv = float(stock_b_molar_equiv)
 
         self.starting_cell_volume = starting_cell_volume
-        self.stock_con_a = stock_con_a.magnitude
-        self.working_con_a = working_con_a.magnitude
+        self.stock_con_a = stock_con_a
+        self.working_con_a = working_con_a
         self.stock_b_concs = stock_b_concentrations
         self.stock_b_molar_equiv = float(stock_b_molar_equiv)
 
@@ -161,6 +161,20 @@ class CDTitrationCalculator:
             required_ratio * self.working_con_a * self.starting_cell_volume / stock_con_b
         )
 
+
+    """
+    TODO: GOT UP TO HERE:
+        27/08/26: Got up to this point of ensuring types would be compatible in calculations.
+        So, need to make sure this function works. At that point I *think* that the create_points
+        function should be all covered to use Quantities throughout its calculations.
+
+        Once that's done, the try/except condition starting at 680 should run through to 703
+        Then the result/dataframe can be dealt with.
+        At some point units need to be made as attributes to the output data table.
+        This should be done in the result_to_dataframe method of the TitrationResult class above
+
+
+    """
     @staticmethod
     def _distance_from_target_range(
         volume: float,
@@ -187,7 +201,7 @@ class CDTitrationCalculator:
         *,
         target_min: Quantity = Quantity(2.0, "microlitres"),
         target_max: Quantity = Quantity(20.0, "microlitres"),
-    ) -> tuple[int, float]:
+    ) -> tuple[int, Quantity]:
         """
         Automatically choose the most appropriate stock-B solution.
 
@@ -216,7 +230,7 @@ class CDTitrationCalculator:
 
         Returns
         -------
-        tuple[int, float]
+        tuple[int, Quantity]
             Stock number and unrounded predicted pipetting volume.
         """
 
