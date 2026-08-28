@@ -14,6 +14,11 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
+from . import Q_
+
+WAVELENGTH_UNIT = "nanometer"
+CD_SIGNAL_UNIT = "millidegree"
+
 
 def test_empty_line(line: str) -> str | None:
     if not "".join(line.strip().split(",")):
@@ -124,9 +129,17 @@ def dataframe_to_orange_table(dataframe: pd.DataFrame) -> Table:
     output.index.name = "Wavelength"
     output = output.reset_index()
     attributes = [col for col in output.columns if col != "Wavelength"]
+    wavelength_variable = ContinuousVariable("Wavelength")
+    wavelength_variable.attributes["unit"] = str(Q_(1, WAVELENGTH_UNIT).units)
+
+    def cd_signal_variable(name):
+        variable = ContinuousVariable(name)
+        variable.attributes["unit"] = str(Q_(1, CD_SIGNAL_UNIT).units)
+        return variable
+
     domain = Domain(
-        [ContinuousVariable(col) for col in attributes],
-        metas=[ContinuousVariable("Wavelength")],
+        [cd_signal_variable(col) for col in attributes],
+        metas=[wavelength_variable],
     )
     return Table.from_numpy(
         domain,
@@ -200,14 +213,15 @@ class OWCDTitrationProcessing(OWWidget):
         gui.button(buttons, self, "Clear", callback=self._clear_data_files)
 
         zero_box = gui.widgetBox(self.controlArea, "Zero-level wavelength range")
+        wavelength_unit = f"{Q_(1, WAVELENGTH_UNIT).units:~}"
         gui.doubleSpin(
             zero_box, self, "zero_range_min", -1e6, 1e6,
-            step=1.0, decimals=2, label="Lower limit",
+            step=1.0, decimals=2, label=f"Lower limit ({wavelength_unit})",
             orientation="horizontal", callback=self._range_controls_changed,
         )
         gui.doubleSpin(
             zero_box, self, "zero_range_max", -1e6, 1e6,
-            step=1.0, decimals=2, label="Upper limit",
+            step=1.0, decimals=2, label=f"Upper limit ({wavelength_unit})",
             orientation="horizontal", callback=self._range_controls_changed,
         )
         gui.widgetLabel(
@@ -235,8 +249,8 @@ class OWCDTitrationProcessing(OWWidget):
         plot_box = gui.vBox(self.mainArea)
         gui.widgetLabel(plot_box, "Raw spectra and zero-level averaging range")
         self.plot_widget = pg.PlotWidget(plot_box)
-        self.plot_widget.setLabel("bottom", "Wavelength")
-        self.plot_widget.setLabel("left", "Circular dichroism")
+        self.plot_widget.setLabel("bottom", "Wavelength", units=f"{Q_(1, WAVELENGTH_UNIT).units:~}")
+        self.plot_widget.setLabel("left", "Circular dichroism", units=f"{Q_(1, CD_SIGNAL_UNIT).units:~}")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.2)
         plot_box.layout().addWidget(self.plot_widget)
 
