@@ -103,10 +103,8 @@ def fit_hill(
 
     model = Model(hill_equation)
     params = model.make_params(v_max = top_guess,
-                               half_saturation = half_guess,
-                               hill_coefficient = dict(value = top_guess/2,
-                                                       min = 0,
-                                                       max = top_guess)
+                               half_saturation = dict(value = half_guess, min = 0),
+                               hill_coefficient = dict(value = 1.0, min = 0)
                                )
     result = model.fit(y, params=params, x=x)
 
@@ -131,10 +129,8 @@ def fit_hill1(
     model = Model(hill1_equation)
     params = model.make_params(bottom = bottom_guess,
                                top = top_guess,
-                               half_saturation = half_guess,
-                               hill_coefficient = dict(value = (top_guess - bottom_guess)/2,
-                                                       min = 0,
-                                                       max = top_guess)
+                               half_saturation = dict(value = half_guess, min = 0),
+                               hill_coefficient = dict(value = 1.0, min = 0)
                                )
     result = model.fit(y, params=params, x=x)
 
