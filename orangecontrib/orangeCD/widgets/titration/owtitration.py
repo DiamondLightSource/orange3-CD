@@ -57,6 +57,7 @@ class FixedRow:
 class TitrationResult:
     mode: TitrationMode
     volume_solution_a: float
+    working_concentration_a: Quantity
 
     # Increasing-volume mode only
     volume_buffer: float | None = None
@@ -86,6 +87,7 @@ class TitrationResult:
 
         df["mode"] = self.mode.value
         df["volume_solution_a"] = self.volume_solution_a
+        df["working_concentration_a"] = self.working_concentration_a
 
         if self.mode == TitrationMode.INCREASING:
             df["volume_buffer"] = self.volume_buffer
@@ -431,6 +433,7 @@ class CDTitrationCalculator:
         return TitrationResult(
             mode=TitrationMode.FIXED,
             volume_solution_a=volume_a,
+            working_concentration_a=self.working_con_a,
             rows=rows,
         )
 
@@ -503,6 +506,7 @@ class CDTitrationCalculator:
         return TitrationResult(
             mode=TitrationMode.INCREASING,
             volume_solution_a=volume_a,
+            working_concentration_a=self.working_con_a,
             volume_buffer=volume_buffer,
             max_volume_allowed=max_volume_allowed,
             max_volume_added=total_stock_b,
