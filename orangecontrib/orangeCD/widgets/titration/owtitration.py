@@ -68,11 +68,18 @@ class TitrationResult:
         default_factory=list
     )
 
-    def result_to_dataframe(self) -> pd.DataFrame:
+    def result_to_dataframe(self) -> tuple[pd.DataFrame, dict[str, str]]:
         """
         Convert the calculated titration rows into a pandas DataFrame.
 
         Calculation-level metadata is added as additional columns.
+
+        Returns
+        -------
+        tuple[pd.DataFrame, dict[str, str]]
+            The dataframe, with any pint Quantity column replaced by
+            its plain magnitude, and a mapping of column name to unit
+            string for the columns that held a Quantity.
         """
 
         df = pd.DataFrame(asdict(row) for row in self.rows)
@@ -86,7 +93,14 @@ class TitrationResult:
             df["max_volume_added"] = self.max_volume_added
             df["within_limit"] = self.within_limit
 
-        return df
+        units: dict[str, str] = {}
+        for column in df.columns:
+            first_value = df[column].iloc[0]
+            if isinstance(first_value, Quantity):
+                units[column] = str(first_value.units)
+                df[column] = df[column].apply(lambda value: value.magnitude)
+
+        return df, units
 
 
 class CDTitrationCalculator:
@@ -124,12 +138,6 @@ class CDTitrationCalculator:
         ):
             raise ValueError("All stock-B concentrations must be greater than zero")
         
-        # self.starting_cell_volume = float(starting_cell_volume.magnitude)
-        # self.stock_con_a = float(stock_con_a.magnitude)
-        # self.working_con_a = float(working_con_a.magnitude)
-        # self.stock_b_concs = [float(concentration.magnitude) for concentration in stock_b_concentrations]
-        # self.stock_b_molar_equiv = float(stock_b_molar_equiv)
-
         self.starting_cell_volume = starting_cell_volume
         self.stock_con_a = stock_con_a
         self.working_con_a = working_con_a
@@ -147,8 +155,8 @@ class CDTitrationCalculator:
     def _required_stock_b_volume(
         self,
         required_ratio: float,
-        stock_con_b: float,
-    ) -> float:
+        stock_con_b: Quantity,
+    ) -> Quantity:
         """
         Calculate the unrounded stock-B volume required for a
         ratio, or for a ratio increment in increasing mode.
@@ -161,25 +169,11 @@ class CDTitrationCalculator:
             required_ratio * self.working_con_a * self.starting_cell_volume / stock_con_b
         )
 
-
-    """
-    TODO: GOT UP TO HERE:
-        27/08/26: Got up to this point of ensuring types would be compatible in calculations.
-        So, need to make sure this function works. At that point I *think* that the create_points
-        function should be all covered to use Quantities throughout its calculations.
-
-        Once that's done, the try/except condition starting at 680 should run through to 703
-        Then the result/dataframe can be dealt with.
-        At some point units need to be made as attributes to the output data table.
-        This should be done in the result_to_dataframe method of the TitrationResult class above
-
-
-    """
     @staticmethod
     def _distance_from_target_range(
         volume: float,
-        target_min: float,
-        target_max: float,
+        target_min: Quantity,
+        target_max: Quantity,
     ) -> float:
         """
         Return the distance from a volume to a closed target range.
@@ -592,19 +586,19 @@ class OWTitrationCalculator(OWWidget):
 
     @property
     def starting_cell_volume(self):
-        return Q_(self.starting_cell_volume_value, self._volume_unit)
+        return Q_(float(self.starting_cell_volume_value), self._volume_unit)
     @property
     def stock_con_a(self):
-        return Q_(self.stock_con_a_value, self._conc_unit)
+        return Q_(float(self.stock_con_a_value), self._conc_unit)
     @property
     def working_con_a(self):
-        return Q_(self.working_con_a_value, self._conc_unit)
+        return Q_(float(self.working_con_a_value), self._conc_unit)
     @property
     def minimum_volume(self):
-        return Q_(self.target_min_volume_value, self._volume_unit)
+        return Q_(float(self.target_min_volume_value), self._volume_unit)
     @property
     def maximum_volume(self):
-        return Q_(self.target_max_volume_value, self._volume_unit)
+        return Q_(float(self.target_max_volume_value), self._volume_unit)
     
 
 
@@ -624,19 +618,27 @@ class OWTitrationCalculator(OWWidget):
 
     def _build_controls(self):
         box = gui.widgetBox(self.controlArea, "Titration inputs")
-        gui.comboBox(box, self, "_conc_unit", items=self.CONCENTRATION_UNITS, label="Stock solution concentration units:")
-        gui.comboBox(box, self, "_volume_unit", items=self.VOLUME_UNITS, label="Volume units:")
+        gui.comboBox(box, self, "_conc_unit", items=self.CONCENTRATION_UNITS, label="Stock solution concentration units:",
+                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
+        gui.comboBox(box, self, "_volume_unit", items=self.VOLUME_UNITS, label="Volume units:",
+                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
 
-        for label, value in (
-            ("Starting cell volume", "starting_cell_volume_value"),
-            ("Stock concentration A", "stock_con_a_value"),
-            ("Working concentration A", "working_con_a_value"),
-            ("Stock B concentrations", "stock_b_concentrations_values"),
-            ("Stock B molar equivalent", "stock_b_molar_equiv"),
-            ("Target minimum volume", "target_min_volume_value"),
-            ("Target maximum volume", "target_max_volume_value"),
+        self._unit_labels: list[tuple[gui.QtWidgets.QLabel, str, str]] = []
+        for label, value, unit_kind in (
+            ("Starting cell volume", "starting_cell_volume_value", "volume"),
+            ("Stock concentration A", "stock_con_a_value", "concentration"),
+            ("Working concentration A", "working_con_a_value", "concentration"),
+            ("Stock B concentrations", "stock_b_concentrations_values", "concentration"),
+            ("Stock B molar equivalent", "stock_b_molar_equiv", None),
+            ("Target minimum volume", "target_min_volume_value", "volume"),
+            ("Target maximum volume", "target_max_volume_value", "volume"),
         ):
-            gui.lineEdit(box, self, value, label=label, orientation="horizontal", callback=self.calculate)
+            row = gui.hBox(box)
+            label_widget = gui.widgetLabel(row, label)
+            gui.lineEdit(row, self, value, callback=self.calculate)
+            if unit_kind is not None:
+                self._unit_labels.append((label_widget, label, unit_kind))
+        self._update_unit_labels()
 
         gui.widgetLabel(box, "Molar ratios")
         self.ratios_editor = gui.QtWidgets.QPlainTextEdit(self.ratios, box)
@@ -658,6 +660,18 @@ class OWTitrationCalculator(OWWidget):
 
     def _ratios_changed(self):
         self.ratios = self.ratios_editor.toPlainText().strip()
+
+    def _unit_symbol(self, unit_kind):
+        unit_name = self._volume_unit if unit_kind == "volume" else self._conc_unit
+        return f"{Q_(1, unit_name).units:~}"
+
+    def _update_unit_labels(self):
+        for label_widget, base_text, unit_kind in self._unit_labels:
+            label_widget.setText(f"{base_text} ({self._unit_symbol(unit_kind)})")
+
+    def _on_unit_changed(self):
+        self._update_unit_labels()
+        self.calculate()
 
     def _build_table(self):
         box = gui.vBox(self.mainArea)
@@ -697,11 +711,11 @@ class OWTitrationCalculator(OWWidget):
                 stock_b_molar_equiv=float(self.stock_b_molar_equiv),
             )
             points = calculator.create_points(ratios=ratios, mode=mode, 
-                                              target_min=float(self.minimum_volume.magnitude), 
-                                              target_max=float(self.maximum_volume.magnitude)
-                                              )
+                                                target_min=self.minimum_volume, 
+                                                target_max=self.maximum_volume
+                                                )
             result = calculator.calculate(mode=mode, points=points)
-            dataframe = result.result_to_dataframe()
+            dataframe, units = result.result_to_dataframe()
         except (TypeError, ValueError) as exc:
             self.table_model.set_dataframe(pd.DataFrame()); self.summary_label.setText("No result")
             self.Error.invalid_input(str(exc)); self.Outputs.data.send(None); return
@@ -711,13 +725,20 @@ class OWTitrationCalculator(OWWidget):
         if result.mode == TitrationMode.INCREASING:
             summary += f" | Initial buffer volume: {result.volume_buffer:g} | Added volume within 15% limit: {'yes' if result.within_limit else 'no'}"
         self.summary_label.setText(summary)
-        self.Outputs.data.send(self._to_orange_table(dataframe))
+        self.Outputs.data.send(self._to_orange_table(dataframe, units))
 
     @staticmethod
-    def _to_orange_table(dataframe):
+    def _to_orange_table(dataframe, units):
         numeric = [c for c in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[c]) and not pd.api.types.is_bool_dtype(dataframe[c])]
         meta = [c for c in dataframe.columns if c not in numeric]
-        domain = Domain([ContinuousVariable(str(c)) for c in numeric], metas=[StringVariable(str(c)) for c in meta])
+
+        def continuous_variable(name):
+            variable = ContinuousVariable(str(name))
+            if name in units:
+                variable.attributes["unit"] = units[name]
+            return variable
+
+        domain = Domain([continuous_variable(c) for c in numeric], metas=[StringVariable(str(c)) for c in meta])
         return Table.from_numpy(domain, dataframe[numeric].to_numpy(dtype=float), metas=dataframe[meta].astype(str).to_numpy(dtype=object))
 
 
