@@ -405,13 +405,13 @@ class OWBindingData(OWWidget):
             split_series_name(variable.name)[0] for variable in corrected
         ]
         cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
-        cd_variable = ContinuousVariable("CD(mdeg)")
+        cd_variable = ContinuousVariable("CD")
         cd_variable.attributes["unit"] = cd_unit
-        change_variable = ContinuousVariable("Change in CD(mdeg)")
+        change_variable = ContinuousVariable("Change in CD")
         change_variable.attributes["unit"] = cd_unit
         delta_epsilon_variable = ContinuousVariable("Delta Epsilon")
         delta_epsilon_variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
-        concentration_b_variable = ContinuousVariable("Conc [B] (Molar)")
+        concentration_b_variable = ContinuousVariable("Conc [B]")
         concentration_b_variable.attributes["unit"] = str(Q_(1, CONCENTRATION_UNIT).units)
         domain = Domain(
             [
