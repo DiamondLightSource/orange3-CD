@@ -74,3 +74,5 @@ lockfiles/
 
 notes/
 random_scripts/
+
+example_pipelines/*
