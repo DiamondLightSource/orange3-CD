@@ -22,11 +22,10 @@ The appropriate files can be selected by using the file browser from the `Browse
 
 The `Titration data files` section is used to load the data files from the experiment. The file browser is opened using the `Select files...` button.
 
-``` 
-NOTE
 
-The loaded data files are sorted according to their name. 
-```
+> [!NOTE]
+> The loaded data files are sorted according to their name. 
+
  
 
 ### Background subtraction
@@ -34,11 +33,9 @@ The loaded data files are sorted according to their name.
 A background subtraction region is defined by the text input boxes. The location of the region is indicated on the spectra on the right hand side of the widget by two vertical lines. The background region can also be set by moving the position of the lines with the mouse.
 
 
-```
-NOTE
+> [!NOTE]
+> The background subtraction is performed by taking a simple numeric average across the region set as the background for each spectra, and offsetting the entire spectrum by this value. This may change in future.
 
-The background subtraction is performed by taking a simple numeric average across the region set as the background for each spectra, and offsetting the entire spectrum by this value. This may change in future.
-```
 
 
 ## Technical details
