@@ -5,19 +5,23 @@
 from __future__ import annotations
 
 import numpy as np
+from pint import Quantity
 
 from Orange.data import ContinuousVariable, Domain, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
+from . import Q_
+
 MDEG_PER_DELTA_A = 32980.0
-CONCENTRATION_UNITS = ("uM", "mM", "M")
-CONCENTRATION_FACTORS = {"uM": 1e-6, "mM": 1e-3, "M": 1.0}
+PATHLENGTH_UNIT = "centimeter"
+MOLECULAR_WEIGHT_UNIT = "gram / mole"
+DELTA_EPSILON_UNIT = "liter / mole / centimeter"
+CONCENTRATION_COLUMN = "working_concentration_a"
 DEFAULT_CORRECTED_SERIES = "plus_sol_A"
 DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
 DELTA_EPSILON_SUFFIX = "delta_epsilon"
-DEFAULT_CONCENTRATION_UM = 19.659
 DEFAULT_PATHLENGTH_CM = 1.0
 DEFAULT_MEAN_RESIDUE_MW = 113.0
 DEFAULT_SOLUTION_A_MW = 1.0
@@ -33,20 +37,15 @@ def split_series_name(variable_name: str) -> tuple[str, str] | None:
 
 def calculate_delta_epsilon(
     cd_mdeg: np.ndarray,
-    concentration: float,
+    concentration: Quantity,
     pathlength_cm: float,
     mean_residue_molecular_weight: float,
     solution_a_molecular_weight: float,
-    concentration_unit: str,
 ) -> np.ndarray:
     """Convert corrected CD in mdeg to mean-residue delta epsilon."""
-    if concentration_unit not in CONCENTRATION_FACTORS:
-        raise ValueError(
-            "Concentration unit must be one of: "
-            + ", ".join(CONCENTRATION_UNITS)
-        )
+    concentration_m = float(concentration.to("molar").magnitude)
     parameters = {
-        "Concentration": concentration,
+        "Concentration": concentration_m,
         "Pathlength": pathlength_cm,
         "Mean residue molecular weight": mean_residue_molecular_weight,
         "Solution A molecular weight": solution_a_molecular_weight,
@@ -55,7 +54,6 @@ def calculate_delta_epsilon(
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a finite value greater than zero")
 
-    concentration_m = concentration * CONCENTRATION_FACTORS[concentration_unit]
     return (
         np.asarray(cd_mdeg, dtype=float)
         * mean_residue_molecular_weight
@@ -81,12 +79,11 @@ class OWDeltaEpsilon(OWWidget):
 
     class Inputs:
         data = Input("Processed CD Data", Table)
+        titration = Input("Titration Table", Table)
 
     class Outputs:
         data = Output("CD and Delta Epsilon Spectra", Table)
 
-    concentration = Setting(DEFAULT_CONCENTRATION_UM)
-    concentration_unit = Setting("uM")
     pathlength_cm = Setting(DEFAULT_PATHLENGTH_CM)
     mean_residue_molecular_weight = Setting(DEFAULT_MEAN_RESIDUE_MW)
     solution_a_molecular_weight = Setting(DEFAULT_SOLUTION_A_MW)
@@ -109,11 +106,16 @@ class OWDeltaEpsilon(OWWidget):
         )
         invalid_parameter = Msg("{}")
 
+    class Warning(OWWidget.Warning):
+        no_titration = Msg(
+            "Connect a Titration Table to provide the Solution A concentration."
+        )
+        missing_concentration = Msg(
+            f"The Titration Table input does not contain a '{CONCENTRATION_COLUMN}' column."
+        )
+
     def __init__(self) -> None:
         super().__init__()
-        self.concentration = self._positive_float(
-            self.concentration, DEFAULT_CONCENTRATION_UM
-        )
         self.pathlength_cm = self._positive_float(
             self.pathlength_cm, DEFAULT_PATHLENGTH_CM
         )
@@ -123,13 +125,13 @@ class OWDeltaEpsilon(OWWidget):
         self.solution_a_molecular_weight = self._positive_float(
             self.solution_a_molecular_weight, DEFAULT_SOLUTION_A_MW
         )
-        self.concentration_unit = self._normalise_unit(self.concentration_unit)
         if not isinstance(self.corrected_series, str):
             self.corrected_series = DEFAULT_CORRECTED_SERIES
         if not isinstance(self.solution_a_series, str):
             self.solution_a_series = DEFAULT_SOLUTION_A_SERIES
 
         self.data: Table | None = None
+        self.titration_data: Table | None = None
         self.available_series: list[str] = []
         self._updating_series = False
         self._build_controls()
@@ -141,12 +143,6 @@ class OWDeltaEpsilon(OWWidget):
         except (TypeError, ValueError):
             return default
         return value if np.isfinite(value) and value > 0 else default
-
-    @staticmethod
-    def _normalise_unit(value: object) -> str:
-        if isinstance(value, int) and not isinstance(value, bool):
-            return CONCENTRATION_UNITS[value] if 0 <= value < 3 else "uM"
-        return value if value in CONCENTRATION_UNITS else "uM"
 
     def _build_controls(self) -> None:
         series_box = gui.widgetBox(self.controlArea, "Data series")
@@ -170,41 +166,42 @@ class OWDeltaEpsilon(OWWidget):
         note.setWordWrap(True)
 
         conversion_box = gui.widgetBox(self.controlArea, "Conversion parameters")
-        gui.doubleSpin(
-            conversion_box, self, "concentration", 1e-12, 1e12,
-            step=0.1, decimals=6, label="Solution A concentration",
-            orientation="horizontal", callback=self.commit.deferred,
+        self.concentration_label = gui.widgetLabel(
+            conversion_box, "Solution A concentration: connect a Titration Table"
         )
-        gui.comboBox(
-            conversion_box, self, "concentration_unit",
-            label="Concentration unit", items=CONCENTRATION_UNITS,
-            sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self.commit.deferred,
-        )
+        self.concentration_label.setWordWrap(True)
         gui.doubleSpin(
             conversion_box, self, "pathlength_cm", 1e-12, 1e6,
-            step=0.1, decimals=6, label="Pathlength (cm)",
+            step=0.1, decimals=6,
+            label=f"Pathlength ({self._unit_symbol(PATHLENGTH_UNIT)})",
             orientation="horizontal", callback=self.commit.deferred,
         )
         gui.doubleSpin(
             conversion_box, self, "mean_residue_molecular_weight", 1e-12, 1e6,
-            step=1.0, decimals=3, label="Mean residue molecular weight",
+            step=1.0, decimals=3,
+            label=f"Mean residue molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
             orientation="horizontal", callback=self.commit.deferred,
         )
         gui.doubleSpin(
             conversion_box, self, "solution_a_molecular_weight", 1e-12, 1e12,
-            step=100.0, decimals=3, label="Solution A molecular weight",
+            step=100.0, decimals=3,
+            label=f"Solution A molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
             orientation="horizontal", callback=self.commit.deferred,
         )
         equation = gui.widgetLabel(
             conversion_box,
             "Delta epsilon = CD(mdeg) x mean residue molecular weight / "
-            "[32980 x concentration(M) x pathlength(cm) x Solution A MW]",
+            "[32980 x concentration(M) x pathlength(cm) x Solution A MW]. "
+            "Solution A concentration is taken from the connected Titration Table.",
         )
         equation.setWordWrap(True)
         gui.auto_commit(
             self.buttonsArea, self, "auto_commit", "Apply", commit=self.commit
         )
+
+    @staticmethod
+    def _unit_symbol(unit_name: str) -> str:
+        return f"{Q_(1, unit_name).units:~}"
 
     @Inputs.data
     def set_data(self, data: Table | None) -> None:
@@ -212,6 +209,26 @@ class OWDeltaEpsilon(OWWidget):
         self.Error.clear()
         self._update_series_controls()
         self.commit.now()
+
+    @Inputs.titration
+    def set_titration(self, table: Table | None) -> None:
+        self.titration_data = table
+        self.commit.deferred()
+
+    def _solution_a_concentration(self) -> Quantity | None:
+        if self.titration_data is None:
+            return None
+        try:
+            variable = self.titration_data.domain[CONCENTRATION_COLUMN]
+        except KeyError:
+            return None
+        unit = variable.attributes.get("unit")
+        if not unit:
+            return None
+        values = self.titration_data.get_column(variable)
+        if len(values) == 0 or not np.isfinite(values[0]):
+            return None
+        return Q_(float(values[0]), unit)
 
     def _update_series_controls(self) -> None:
         stages: list[str] = []
@@ -290,6 +307,25 @@ class OWDeltaEpsilon(OWWidget):
     @gui.deferred
     def commit(self) -> None:
         self.Error.clear()
+        self.Warning.clear()
+
+        concentration = self._solution_a_concentration()
+        if self.titration_data is None:
+            self.Warning.no_titration()
+            self.concentration_label.setText(
+                "Solution A concentration: connect a Titration Table"
+            )
+        elif concentration is None:
+            self.Warning.missing_concentration()
+            self.concentration_label.setText(
+                "Solution A concentration: unavailable from the connected Titration Table"
+            )
+        else:
+            self.concentration_label.setText(
+                f"Solution A concentration: {concentration:g} "
+                f"(from Titration Table)"
+            )
+
         if self.data is None:
             self.Outputs.data.send(None)
             return
@@ -315,6 +351,10 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
+        if concentration is None:
+            self.Outputs.data.send(None)
+            return
+
         raw_variables = [solution_a, *corrected]
         raw_values = np.column_stack(
             [self.data.get_column(variable) for variable in raw_variables]
@@ -322,21 +362,22 @@ class OWDeltaEpsilon(OWWidget):
         try:
             converted = calculate_delta_epsilon(
                 raw_values,
-                self.concentration,
+                concentration,
                 self.pathlength_cm,
                 self.mean_residue_molecular_weight,
                 self.solution_a_molecular_weight,
-                self.concentration_unit,
             )
         except (TypeError, ValueError) as exc:
             self.Error.invalid_parameter(str(exc))
             self.Outputs.data.send(None)
             return
 
-        delta_variables = [
-            ContinuousVariable(self._delta_name(variable))
-            for variable in raw_variables
-        ]
+        def delta_variable(variable: ContinuousVariable) -> ContinuousVariable:
+            delta = ContinuousVariable(self._delta_name(variable))
+            delta.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
+            return delta
+
+        delta_variables = [delta_variable(variable) for variable in raw_variables]
         output_domain = Domain(
             [*raw_variables, *delta_variables], metas=[wavelength]
         )
@@ -354,13 +395,10 @@ class OWDeltaEpsilon(OWWidget):
             if self.data.name else "CD and delta epsilon"
         )
         output.attributes.update({
-            "y_units": "mdeg and M^-1 cm^-1",
             "corrected_series": self.corrected_series,
             "solution_a_series": self.solution_a_series,
             "delta_epsilon_suffix": DELTA_EPSILON_SUFFIX,
-            "solution_a_concentration_M": (
-                self.concentration * CONCENTRATION_FACTORS[self.concentration_unit]
-            ),
+            "solution_a_concentration_M": float(concentration.to("molar").magnitude),
             "pathlength_cm": self.pathlength_cm,
             "mean_residue_molecular_weight": self.mean_residue_molecular_weight,
             "solution_a_molecular_weight": self.solution_a_molecular_weight,

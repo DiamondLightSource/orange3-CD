@@ -15,9 +15,16 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
+from . import Q_
 
 DEFAULT_X = "Titration point"
 DEFAULT_Y = "Delta A"
+
+# Fitted parameters that share the physical unit of the response (y) or of
+# the independent variable (x); everything else (Hill coefficients, r_sq,
+# red_chi_sq) is dimensionless.
+Y_UNIT_PARAMETERS = {"v_max", "top", "bottom", "p_m"}
+X_UNIT_PARAMETERS = {"half_saturation", "k_a", "k_i"}
 
 """
 functions for fitting curves. These are pure function models, of form
@@ -84,20 +91,20 @@ After fitting, a Table is constructed using the fit_result() function.
 """
 def fit_hill(
         x: np.ndarray,
-        y: np.ndarray, 
+        y: np.ndarray,
+        x_unit: str | None = None,
+        y_unit: str | None = None,
         ):
 
     x, y = validate_data(x, y)
 
     top_guess = float(y[np.argmax(x)])
     half_guess = float(np.median(x))
-    
+
     model = Model(hill_equation)
     params = model.make_params(v_max = top_guess,
-                               half_saturation = half_guess,
-                               hill_coefficient = dict(value = top_guess/2,
-                                                       min = 0, 
-                                                       max = top_guess)
+                               half_saturation = dict(value = half_guess, min = 0),
+                               hill_coefficient = dict(value = 1.0, min = 0)
                                )
     result = model.fit(y, params=params, x=x)
 
@@ -105,41 +112,43 @@ def fit_hill(
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
-          
+    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+
 def fit_hill1(
         x: np.ndarray,
-        y: np.ndarray
+        y: np.ndarray,
+        x_unit: str | None = None,
+        y_unit: str | None = None,
         ):
     x, y = validate_data(x, y)
-    
+
     bottom_guess = float(y[np.argmin(x)])
     top_guess = float(y[np.argmax(x)])
     half_guess = float(np.median(x))
-    
+
     model = Model(hill1_equation)
     params = model.make_params(bottom = bottom_guess,
                                top = top_guess,
-                               half_saturation = half_guess,
-                               hill_coefficient = dict(value = (top_guess - bottom_guess)/2,
-                                                       min = 0, 
-                                                       max = top_guess)
+                               half_saturation = dict(value = half_guess, min = 0),
+                               hill_coefficient = dict(value = 1.0, min = 0)
                                )
     result = model.fit(y, params=params, x=x)
-    
+
     x_plt = np.linspace(x[0], x[-1])
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
 
 def fit_bihill(
         x: np.ndarray,
-        y: np.ndarray
+        y: np.ndarray,
+        x_unit: str | None = None,
+        y_unit: str | None = None,
         ):
 
     x, y = validate_data(x, y)
-    
+
     model = Model(bihill_equation)
     params = model.make_params(p_m = dict(value = y.max(), min = 0),
                                k_a = dict(value = x[np.argmax(np.gradient(y))], min = 0),
@@ -149,12 +158,12 @@ def fit_bihill(
                                h_i = dict(value = 1, min = 0,),
                                )
     result = model.fit(y, params=params, x=x)
-    
+
     x_plt = np.linspace(x[0], x[-1])
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
 
 def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
@@ -177,23 +186,39 @@ def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]
 
     return (x, y)
 
-def fit_result(lmfit_result: ModelResult):
+def _parameter_unit(name: str, x_unit: str | None, y_unit: str | None) -> str:
+    if name in Y_UNIT_PARAMETERS:
+        return y_unit or ""
+    if name in X_UNIT_PARAMETERS:
+        return x_unit or ""
+    return ""
+
+
+def fit_result(
+    lmfit_result: ModelResult,
+    x_unit: str | None = None,
+    y_unit: str | None = None,
+):
 
     parameter_names = list(lmfit_result.params.keys()) + ['r_sq', 'red_chi_sq']
     vals = [i.value for i in lmfit_result.params.values()] + [lmfit_result.rsquared, lmfit_result.redchi]
     errs = [i.stderr for i in lmfit_result.params.values()] + [np.nan, np.nan]
+    units = [_parameter_unit(name, x_unit, y_unit) for name in parameter_names]
 
     domain = Domain(
         [
             ContinuousVariable("Estimate"),
             ContinuousVariable("Standard Error"),
         ],
-        metas=[StringVariable("Parameter")],
+        metas=[StringVariable("Parameter"), StringVariable("Unit")],
     )
     result = Table.from_numpy(
         domain,
         np.column_stack((vals, errs)),
-        metas=np.asarray(parameter_names, dtype=object).reshape(-1, 1),
+        metas=np.column_stack((
+            np.asarray(parameter_names, dtype=object),
+            np.asarray(units, dtype=object),
+        )),
     )
     result.name = "Curve fit"
 
@@ -346,6 +371,27 @@ class OWBindingPlot(OWWidget):
         )
         gui.rubber(self.controlArea)
 
+    @staticmethod
+    def _unit_symbol(unit_name: str | None) -> str | None:
+        if not unit_name:
+            return None
+        return f"{Q_(1, unit_name).units:~}"
+
+    def _selected_units(self) -> tuple[str | None, str | None]:
+        if self.data is None:
+            return None, None
+        x_unit = None
+        y_unit = None
+        try:
+            x_unit = self.data.domain[self.x_variable].attributes.get("unit")
+        except KeyError:
+            pass
+        try:
+            y_unit = self.data.domain[self.y_variable].attributes.get("unit")
+        except KeyError:
+            pass
+        return x_unit, y_unit
+
     def _build_plot(self) -> None:
         self.plot = pg.PlotWidget(self.mainArea)
         self.plot.showGrid(x=True, y=True, alpha=0.2)
@@ -433,8 +479,9 @@ class OWBindingPlot(OWWidget):
 
     def _redraw(self) -> None:
         self.plot.clear()
-        self.plot.setLabel("bottom", self.x_variable)
-        self.plot.setLabel("left", self.y_variable)
+        x_unit, y_unit = self._selected_units()
+        self.plot.setLabel("bottom", self.x_variable, units=self._unit_symbol(x_unit))
+        self.plot.setLabel("left", self.y_variable, units=self._unit_symbol(y_unit))
         if self.data is None or not self.x_variable or not self.y_variable:
             return
         try:
@@ -507,7 +554,10 @@ class OWBindingPlot(OWWidget):
             return
         try:
             x, y = self._xy_data()
-            fit_result, self._fit_curve = self.fit_model_fitter(x, y)
+            x_unit, y_unit = self._selected_units()
+            fit_result, self._fit_curve = self.fit_model_fitter(
+                x, y, x_unit=x_unit, y_unit=y_unit
+            )
         except (ValueError, RuntimeError, FloatingPointError) as exc:
             self._fit_curve = None
             self.Error.fit_failed(str(exc))

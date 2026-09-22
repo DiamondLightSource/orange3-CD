@@ -11,9 +11,15 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
+from . import Q_
+
 DEFAULT_CORRECTED_SERIES = "plus_sol_A"
 DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
 MDEG_PER_DELTA_A = 32980.0
+WAVELENGTH_UNIT = "nanometer"
+CD_SIGNAL_UNIT = "millidegree"
+CONCENTRATION_UNIT = "molar"
+DELTA_EPSILON_UNIT = "liter / mole / centimeter"
 
 
 def split_series_name(name: str) -> tuple[str, str] | None:
@@ -81,8 +87,31 @@ class OWBindingData(OWWidget):
         self.titration: Table | None = None
         self._wavelengths: np.ndarray | None = None
         self._moving_line = False
+        self._updating_series = False
         self._build_controls()
         self._build_plot()
+
+    @staticmethod
+    def _unit_symbol(unit_name: str) -> str:
+        return f"{Q_(1, unit_name).units:~}"
+
+    def _axis_units(self) -> tuple[str, str]:
+        """Unit symbols for the plot axes, from the connected spectra if available."""
+        wavelength_unit = WAVELENGTH_UNIT
+        cd_unit = CD_SIGNAL_UNIT
+        if self.spectra is not None:
+            try:
+                wavelength_variable = self.spectra.domain["Wavelength"]
+            except KeyError:
+                wavelength_variable = None
+            if wavelength_variable is not None:
+                wavelength_unit = wavelength_variable.attributes.get(
+                    "unit", WAVELENGTH_UNIT
+                )
+            reference = self._reference()
+            if reference is not None:
+                cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
+        return self._unit_symbol(wavelength_unit), self._unit_symbol(cd_unit)
 
     def _build_controls(self) -> None:
         box = gui.widgetBox(self.controlArea, "Binding-data settings")
@@ -94,25 +123,21 @@ class OWBindingData(OWWidget):
             1e6,
             step=1.0,
             decimals=3,
-            label="Measurement wavelength (nm)",
+            label=f"Measurement wavelength ({self._unit_symbol(WAVELENGTH_UNIT)})",
             orientation="horizontal",
             callback=self._wavelength_control_changed,
         )
-        gui.lineEdit(
-            box,
-            self,
-            "corrected_series",
-            label="Corrected CD series",
-            orientation="horizontal",
-            callback=self._settings_changed,
+        self.corrected_combo = gui.comboBox(
+            box, self, "corrected_series",
+            label="Corrected CD series", items=[],
+            sendSelectedValue=True, valueType=str,
+            orientation="horizontal", callback=self._series_changed,
         )
-        gui.lineEdit(
-            box,
-            self,
-            "solution_a_series",
-            label="Zeroed Solution A series",
-            orientation="horizontal",
-            callback=self._settings_changed,
+        self.solution_a_combo = gui.comboBox(
+            box, self, "solution_a_series",
+            label="Zeroed Solution A series", items=[],
+            sendSelectedValue=True, valueType=str,
+            orientation="horizontal", callback=self._series_changed,
         )
         gui.checkBox(
             box,
@@ -133,8 +158,8 @@ class OWBindingData(OWWidget):
         box = gui.vBox(self.mainArea)
         gui.widgetLabel(box, "Corrected CD spectra and selected wavelength")
         self.plot = pg.PlotWidget(box)
-        self.plot.setLabel("bottom", "Wavelength", units="nm")
-        self.plot.setLabel("left", "CD", units="mdeg")
+        self.plot.setLabel("bottom", "Wavelength", units=self._unit_symbol(WAVELENGTH_UNIT))
+        self.plot.setLabel("left", "CD", units=self._unit_symbol(CD_SIGNAL_UNIT))
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         box.layout().addWidget(self.plot)
 
@@ -144,7 +169,7 @@ class OWBindingData(OWWidget):
             movable=True,
             pen=pg.mkPen("#d62728", width=2),
             hoverPen=pg.mkPen("#ff7f0e", width=3),
-            label="{value:.3f} nm",
+            label=f"{{value:.3f}} {self._unit_symbol(WAVELENGTH_UNIT)}",
         )
         self.line.sigPositionChangeFinished.connect(self._line_changed)
         self.plot.addItem(self.line)
@@ -152,10 +177,42 @@ class OWBindingData(OWWidget):
     @Inputs.spectra
     def set_spectra(self, data: Table | None) -> None:
         self.spectra = data
+        self._update_series_controls()
         self._load_wavelengths()
         self._snap()
         self._refresh_plot()
         self.commit()
+
+    def _update_series_controls(self) -> None:
+        stages: list[str] = []
+        if self.spectra is not None:
+            for variable in self.spectra.domain.attributes:
+                parsed = split_series_name(variable.name)
+                if parsed and parsed[1] not in stages:
+                    stages.append(parsed[1])
+        corrected = self._preferred(stages, self.corrected_series, DEFAULT_CORRECTED_SERIES)
+        solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
+        self._updating_series = True
+        for combo, selected in (
+            (self.corrected_combo, corrected),
+            (self.solution_a_combo, solution_a),
+        ):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(stages)
+            if selected:
+                combo.setCurrentText(selected)
+            combo.blockSignals(False)
+        self.corrected_series, self.solution_a_series = corrected, solution_a
+        self._updating_series = False
+
+    @staticmethod
+    def _preferred(values: list[str], current: str, default: str) -> str:
+        if default in values:
+            return default
+        if current in values:
+            return current
+        return values[0] if values else ""
 
     @Inputs.titration
     def set_titration(self, data: Table | None) -> None:
@@ -198,9 +255,10 @@ class OWBindingData(OWWidget):
             self._snap(float(self.line.value()))
             self.commit()
 
-    def _settings_changed(self) -> None:
-        self._refresh_plot()
-        self.commit()
+    def _series_changed(self) -> None:
+        if not self._updating_series:
+            self._refresh_plot()
+            self.commit()
 
     def _matching(self, stage: str) -> list[ContinuousVariable]:
         if self.spectra is None:
@@ -248,6 +306,10 @@ class OWBindingData(OWWidget):
 
     def _refresh_plot(self) -> None:
         self.plot.clear()
+        wavelength_unit, cd_unit = self._axis_units()
+        self.plot.setLabel("bottom", "Wavelength", units=wavelength_unit)
+        self.plot.setLabel("left", "CD", units=cd_unit)
+        self.line.label.setFormat(f"{{value:.3f}} {wavelength_unit}")
         if self.spectra is not None and self._wavelengths is not None:
             variables = self._matching(self.corrected_series)
             reference = self._reference()
@@ -342,15 +404,24 @@ class OWBindingData(OWWidget):
         sample_names = ["Solution A"] + [
             split_series_name(variable.name)[0] for variable in corrected
         ]
+        cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
+        cd_variable = ContinuousVariable("CD")
+        cd_variable.attributes["unit"] = cd_unit
+        change_variable = ContinuousVariable("Change in CD")
+        change_variable.attributes["unit"] = cd_unit
+        delta_epsilon_variable = ContinuousVariable("Delta Epsilon")
+        delta_epsilon_variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
+        concentration_b_variable = ContinuousVariable("Conc [B]")
+        concentration_b_variable.attributes["unit"] = str(Q_(1, CONCENTRATION_UNIT).units)
         domain = Domain(
             [
                 ContinuousVariable("Titration point"),
-                ContinuousVariable("CD(mdeg)"),
-                ContinuousVariable("Change in CD(mdeg)"),
+                cd_variable,
+                change_variable,
                 ContinuousVariable("Delta A"),
-                ContinuousVariable("Delta Epsilon"),
+                delta_epsilon_variable,
                 ContinuousVariable("Binding Stoichiometry"),
-                ContinuousVariable("Conc [B] (Molar)"),
+                concentration_b_variable,
             ],
             metas=[StringVariable("Sample")],
         )

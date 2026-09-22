@@ -13,6 +13,8 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
+from . import Q_
+
 PROCESSING_STAGES = [
     "All spectra",
     "raw_data",
@@ -279,6 +281,37 @@ class OWCDSpectraPlot(OWWidget):
         self.selected_spectra = list(range(len(self.spectra_names)))
         self._replot()
 
+    @staticmethod
+    def _unit_symbol(unit_name: str | None) -> str | None:
+        if not unit_name:
+            return None
+        return f"{Q_(1, unit_name).units:~}"
+
+    def _update_axis_labels(self) -> None:
+        wavelength_unit = None
+        signal_unit = None
+
+        if self.data is not None:
+            try:
+                wavelength_variable = self.data.domain["Wavelength"]
+            except KeyError:
+                wavelength_variable = None
+            if isinstance(wavelength_variable, ContinuousVariable) and (
+                wavelength_variable in self.data.domain.metas
+            ):
+                wavelength_unit = wavelength_variable.attributes.get("unit")
+
+            variables = self._matching_variables()
+            if variables:
+                signal_unit = variables[0].attributes.get("unit")
+
+        self.plot_item.setLabel(
+            "bottom", "Wavelength", units=self._unit_symbol(wavelength_unit)
+        )
+        self.plot_item.setLabel(
+            "left", "Circular dichroism", units=self._unit_symbol(signal_unit)
+        )
+
     def _wavelength(self) -> np.ndarray | None:
         if self.data is None:
             return None
@@ -307,6 +340,7 @@ class OWCDSpectraPlot(OWWidget):
         self.plot_item.addLine(y=0, pen=pg.mkPen("#777777"))
         self.legend.setVisible(self.show_legend)
         self.Error.clear()
+        self._update_axis_labels()
 
         if self.data is None:
             return
