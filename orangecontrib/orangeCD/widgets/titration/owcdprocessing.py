@@ -9,7 +9,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from Orange.data import ContinuousVariable, Domain, Table
+from Orange.data import ContinuousVariable, Domain, Table, StringVariable
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -121,31 +121,35 @@ def orange_table_to_dataframe(table: Table) -> pd.DataFrame:
 
 
 def dataframe_to_orange_table(dataframe: pd.DataFrame) -> Table:
+
     output = dataframe.copy()
     output.columns = [
         " | ".join(map(str, col)) if isinstance(col, tuple) else str(col)
         for col in output.columns
     ]
     output.index.name = "Wavelength"
-    output = output.reset_index()
-    attributes = [col for col in output.columns if col != "Wavelength"]
-    wavelength_variable = ContinuousVariable("Wavelength")
-    wavelength_variable.attributes["unit"] = str(Q_(1, WAVELENGTH_UNIT).units)
+    attributes = output.index.values
 
-    def cd_signal_variable(name):
+    def wavelength_variable(name):
         variable = ContinuousVariable(name)
-        variable.attributes["unit"] = str(Q_(1, CD_SIGNAL_UNIT).units)
         return variable
 
     domain = Domain(
-        [cd_signal_variable(col) for col in attributes],
-        metas=[wavelength_variable],
-    )
-    return Table.from_numpy(
+        [wavelength_variable(str(col)) for col in attributes],
+        metas = [StringVariable("Wavelength")],
+        )
+
+    table = Table.from_numpy(
         domain,
-        output[attributes].to_numpy(dtype=float),
-        metas=output[["Wavelength"]].to_numpy(dtype=float),
+        np.array([output.loc[i] for i in attributes]).T,
+        # metas=np.array([[i] for i in output.columns], dtype=str),
+        metas = np.array(output.columns, dtype=object)[:, np.newaxis],
     )
+
+    table.attributes["wavelength_unit"] = str(Q_(1, WAVELENGTH_UNIT).units)
+    table.attributes["spectrum_unit"] = str(Q_(1, CD_SIGNAL_UNIT).units)
+
+    return table
 
 
 class OWCDTitrationProcessing(OWWidget):
