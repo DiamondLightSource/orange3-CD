@@ -8,7 +8,7 @@ import numpy as np
 import pyqtgraph as pg
 from AnyQt.QtGui import QColor
 from AnyQt.QtWidgets import QAbstractItemView
-from Orange.data import ContinuousVariable, Table
+from Orange.data import Table, StringVariable
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
@@ -228,11 +228,11 @@ class OWCDSpectraPlot(OWWidget):
             stages = ["All spectra"]
         else:
             variables = [
-                variable 
-                for variable in self.data.domain.attributes
-                if isinstance(variable, ContinuousVariable)
+                variable[0]
+                for variable in self.data.metas
+                if isinstance(variable, np.ndarray)
             ]
-            stages = sorted({variable.name.split("|")[-1].strip() 
+            stages = sorted({variable.split("|")[-1].strip() 
                              for variable in variables
                                 })
             stages.insert(0, "All spectra")
@@ -252,30 +252,28 @@ class OWCDSpectraPlot(OWWidget):
         self._populate_spectra()
         self._replot()
 
-    def _matching_variables(self) -> list[ContinuousVariable]:
+    def _matching_variables(self) -> list[list[int, str]]:
         if self.data is None:
             return []
 
         variables = [
-            variable
-            for variable in self.data.domain.attributes
-            if isinstance(variable, ContinuousVariable)
+            variable[0]
+            for variable in self.data.metas
+            if isinstance(variable, np.ndarray)
         ]
         if self.selected_stage == "All spectra":
-            return variables
+            return [[idx, var] for (idx, var) in enumerate(variables)]
 
         suffix = f" | {self.selected_stage}"
         return [
-            variable for variable in variables if variable.name.endswith(suffix)
+            [idx, variable] for (idx, variable) in enumerate(variables) if variable.endswith(suffix)
         ]
 
     def _populate_spectra(self) -> None:
-        names = [variable.name for variable in self._matching_variables()]
+        matched_vars = self._matching_variables()
 
-        # Assigning through the bound attributes allows gui.listBox to update
-        # its model and selection without direct QListWidget manipulation.
-        self.spectra_names = names
-        self.selected_spectra = list(range(len(names)))
+        self.spectra_names = [i[1] for i in matched_vars]
+        self.selected_spectra = list(i[0] for i in matched_vars)
 
     def _select_all_spectra(self) -> None:
         self.selected_spectra = list(range(len(self.spectra_names)))
@@ -293,17 +291,18 @@ class OWCDSpectraPlot(OWWidget):
 
         if self.data is not None:
             try:
-                wavelength_variable = self.data.domain["Wavelength"]
-            except KeyError:
+                wavelength_variable = self.data.domain.metas[0]
+            except IndexError:
                 wavelength_variable = None
-            if isinstance(wavelength_variable, ContinuousVariable) and (
+
+            if isinstance(wavelength_variable, StringVariable) and (
                 wavelength_variable in self.data.domain.metas
             ):
-                wavelength_unit = wavelength_variable.attributes.get("unit")
+                wavelength_unit = self.data.attributes.get("wavelength_unit")
 
             variables = self._matching_variables()
             if variables:
-                signal_unit = variables[0].attributes.get("unit")
+                signal_unit = self.data.attributes.get("spectrum_unit")
 
         self.plot_item.setLabel(
             "bottom", "Wavelength", units=self._unit_symbol(wavelength_unit)
@@ -317,18 +316,18 @@ class OWCDSpectraPlot(OWWidget):
             return None
 
         try:
-            variable = self.data.domain["Wavelength"]
+            variable = self.data.domain.metas[0]
         except KeyError:
             self.Error.missing_wavelength()
             return None
 
         if variable not in self.data.domain.metas or not isinstance(
-            variable, ContinuousVariable
+            variable, StringVariable
         ):
             self.Error.missing_wavelength()
             return None
 
-        wavelength = np.asarray(self.data.get_column(variable), dtype=float)
+        wavelength = np.array([float(var.name) for var in self.data.domain.attributes])
         if np.isnan(wavelength).any():
             self.Error.invalid_wavelength()
             return None
@@ -349,12 +348,8 @@ class OWCDSpectraPlot(OWWidget):
         if wavelength is None:
             return
 
-        variables = self._matching_variables()
-        selected_variables = [
-            variables[index]
-            for index in self.selected_spectra
-            if 0 <= index < len(variables)
-        ]
+        variables = self.spectra_names
+        selected_variables = self.selected_spectra
         if not selected_variables:
             if not variables:
                 self.Error.no_numeric_spectra()
@@ -364,16 +359,16 @@ class OWCDSpectraPlot(OWWidget):
             self.colour_scale,
             len(selected_variables),
         )
-        for colour, variable in zip(colours, selected_variables):
-            intensity = np.asarray(self.data.get_column(variable), dtype=float)
+        for colour, variable, var_name in zip(colours, selected_variables, variables):
+            intensity = self.data[variable].x
             valid = np.isfinite(wavelength) & np.isfinite(intensity)
-            display_name = variable.name.split(" | ", maxsplit=1)[0]
             curve = self.plot_item.plot(
                 wavelength[valid],
                 intensity[valid],
                 pen=pg.mkPen(colour, width=self.line_width),
             )
             if self.show_legend:
+                display_name = var_name.split(" | ", maxsplit=1)[0]
                 self.legend.addItem(curve, display_name)
 
         self.plot_item.invertX(self.reverse_wavelength_axis)
