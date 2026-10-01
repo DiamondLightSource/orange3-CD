@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from pint import Quantity
 
-from Orange.data import ContinuousVariable, Domain, Table
+from Orange.data import ContinuousVariable, Table, StringVariable
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -93,7 +93,7 @@ class OWDeltaEpsilon(OWWidget):
 
     class Error(OWWidget.Error):
         missing_wavelength = Msg(
-            "Input does not contain a continuous Wavelength meta attribute."
+            "Input does not contain a Wavelength meta attribute."
         )
         no_series_names = Msg(
             "Input features do not use the expected 'sample | series' names."
@@ -233,8 +233,8 @@ class OWDeltaEpsilon(OWWidget):
     def _update_series_controls(self) -> None:
         stages: list[str] = []
         if self.data is not None:
-            for variable in self.data.domain.attributes:
-                parsed = split_series_name(variable.name)
+            for variable in self.data.metas:
+                parsed = split_series_name(variable[0])
                 if parsed and parsed[1] not in stages:
                     stages.append(parsed[1])
         self.available_series = stages
@@ -266,41 +266,56 @@ class OWDeltaEpsilon(OWWidget):
         if not self._updating_series:
             self.commit.deferred()
 
-    def _wavelength_variable(self) -> ContinuousVariable | None:
+    def _wavelength_variable(self) -> np.ndarray | None:
         if self.data is None:
             return None
-        try:
-            variable = self.data.domain["Wavelength"]
-        except KeyError:
-            return None
-        return variable if (
-            variable in self.data.domain.metas
-            and isinstance(variable, ContinuousVariable)
-        ) else None
 
-    def _variables_matching(self, stage: str) -> list[ContinuousVariable]:
+        try:
+            variable = [i for i in self.data.domain.metas if i.name == "Wavelength"][0]
+        except KeyError:
+            self.Error.missing_wavelength()
+            return None
+
+        if variable not in self.data.domain.metas or not isinstance(
+            variable, StringVariable
+        ):
+            self.Error.missing_wavelength()
+            return None
+
+        wavelength = np.array([float(var.name) for var in self.data.domain.attributes])
+        if np.isnan(wavelength).any():
+            self.Error.invalid_wavelength()
+            return None
+        return self.data.domain
+
+    def _variables_matching(self, stage: str) -> list[np.ndarray]:
         if self.data is None or not stage:
             return []
+        
+        variables = [
+            variable[0]
+            for variable in self.data.metas
+            if isinstance(variable, np.ndarray)
+        ]
+        
         suffix = f" | {stage}"
         return [
-            variable for variable in self.data.domain.attributes
-            if isinstance(variable, ContinuousVariable)
-            and variable.name.endswith(suffix)
+            [idx, variable] for (idx, variable) in enumerate(variables) if variable.endswith(suffix)
         ]
 
     def _solution_a_variable(self) -> ContinuousVariable | None:
-        candidates = self._variables_matching(self.solution_a_series)
+        indexed_candidates = self._variables_matching(self.solution_a_series)
         background = [
-            variable for variable in candidates
-            if variable.name.startswith("Background | ")
+            variable for variable in indexed_candidates
+            if variable[1].startswith("Background | ")
         ]
-        return background[0] if background else (candidates[0] if candidates else None)
+        return background[0] if background else (indexed_candidates[0][0] if indexed_candidates else None)
 
     @staticmethod
     def _delta_name(variable: ContinuousVariable) -> str:
-        parsed = split_series_name(variable.name)
+        parsed = split_series_name(variable)
         if parsed is None:
-            return f"{variable.name}_{DELTA_EPSILON_SUFFIX}"
+            return f"{variable}_{DELTA_EPSILON_SUFFIX}"
         sample, stage = parsed
         return f"{sample} | {stage}_{DELTA_EPSILON_SUFFIX}"
 
@@ -340,8 +355,8 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        corrected = self._variables_matching(self.corrected_series)
-        if not corrected:
+        indexed_corrected = self._variables_matching(self.corrected_series)
+        if not indexed_corrected:
             self.Error.no_corrected_series(self.corrected_series)
             self.Outputs.data.send(None)
             return
@@ -355,9 +370,16 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        raw_variables = [solution_a, *corrected]
+        # do some sorting out of the idx, name pairs that we get from the _variables_matching function
+        corrected_indices = [i[0] for i in indexed_corrected]
+        corrected_names = [i[1] for i in indexed_corrected]
+        solution_a_idx = solution_a[0]
+        solution_a_name = solution_a[1]
+        raw_variables_idx = [solution_a_idx, *corrected_indices]
+        raw_variable_names = [solution_a_name, *corrected_names]
+
         raw_values = np.column_stack(
-            [self.data.get_column(variable) for variable in raw_variables]
+            [self.data[variable].x for variable in raw_variables_idx]
         )
         try:
             converted = calculate_delta_epsilon(
@@ -372,22 +394,14 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        def delta_variable(variable: ContinuousVariable) -> ContinuousVariable:
-            delta = ContinuousVariable(self._delta_name(variable))
-            delta.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
-            return delta
+        delta_variables = [self._delta_name(var) for var in raw_variable_names]
 
-        delta_variables = [delta_variable(variable) for variable in raw_variables]
-        output_domain = Domain(
-            [*raw_variables, *delta_variables], metas=[wavelength]
-        )
         output = Table.from_numpy(
-            output_domain,
-            np.column_stack((raw_values, converted)),
-            metas=np.asarray(
-                self.data.get_column(wavelength), dtype=float
-            ).reshape(-1, 1),
-            ids=self.data.ids,
+            wavelength,
+            np.column_stack((raw_values, converted)).T,
+            metas = np.asarray(
+                [*raw_variable_names, *delta_variables], dtype=object
+                ).reshape(-1,1),
             attributes=dict(self.data.attributes),
         )
         output.name = (
