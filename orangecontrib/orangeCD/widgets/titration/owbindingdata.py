@@ -13,8 +13,8 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
 
-DEFAULT_CORRECTED_SERIES = "plus_sol_A"
-DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
+DEFAULT_CORRECTED_SERIES = "plus_sol_A_delta_epsilon"
+DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed_delta_epsilon"
 MDEG_PER_DELTA_A = 32980.0
 WAVELENGTH_UNIT = "nanometer"
 CD_SIGNAL_UNIT = "millidegree"
@@ -61,7 +61,7 @@ class OWBindingData(OWWidget):
     class Outputs:
         data = Output("Binding Data", Table)
 
-    wavelength = Setting(355.0)
+    wavelength = Setting(400.0)
     corrected_series = Setting(DEFAULT_CORRECTED_SERIES)
     solution_a_series = Setting(DEFAULT_SOLUTION_A_SERIES)
     absolute_change = Setting(True)
@@ -109,8 +109,9 @@ class OWBindingData(OWWidget):
                     "unit", WAVELENGTH_UNIT
                 )
             reference = self._reference()
-            if reference is not None:
-                cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
+            # TODO: FIX THIS
+            # if reference is not None:
+            #     cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
         return self._unit_symbol(wavelength_unit), self._unit_symbol(cd_unit)
 
     def _build_controls(self) -> None:
@@ -186,8 +187,8 @@ class OWBindingData(OWWidget):
     def _update_series_controls(self) -> None:
         stages: list[str] = []
         if self.spectra is not None:
-            for variable in self.spectra.domain.attributes:
-                parsed = split_series_name(variable.name)
+            for variable in self.spectra.metas:
+                parsed = split_series_name(variable[0])
                 if parsed and parsed[1] not in stages:
                     stages.append(parsed[1])
         corrected = self._preferred(stages, self.corrected_series, DEFAULT_CORRECTED_SERIES)
@@ -224,16 +225,23 @@ class OWBindingData(OWWidget):
         if self.spectra is None:
             return
         try:
-            variable = self.spectra.domain["Wavelength"]
+            variable = [i for i in self.spectra.domain.metas if i.name == "Wavelength"][0]
         except KeyError:
-            return
-        if (
-            variable in self.spectra.domain.metas
-            and isinstance(variable, ContinuousVariable)
+            self.Error.missing_wavelength()
+            return None
+
+        if variable not in self.spectra.domain.metas or not isinstance(
+            variable, StringVariable
         ):
-            values = np.asarray(self.spectra.get_column(variable), dtype=float)
-            if values.size and np.all(np.isfinite(values)):
-                self._wavelengths = values
+            self.Error.missing_wavelength()
+            return None
+
+        wavelength = np.array([float(var.name) for var in self.spectra.domain.attributes])
+
+        if np.isnan(wavelength).any():
+            self.Error.invalid_wavelength()
+            return None
+        self._wavelengths = wavelength
 
     def _snap(self, requested: float | None = None) -> int | None:
         if self._wavelengths is None:
@@ -260,27 +268,27 @@ class OWBindingData(OWWidget):
             self._refresh_plot()
             self.commit()
 
-    def _matching(self, stage: str) -> list[ContinuousVariable]:
+    def _matching(self, stage: str) -> list[np.ndarray]:
         if self.spectra is None:
             return []
+        
+        variables = [
+            variable[0]
+            for variable in self.spectra.metas
+            if isinstance(variable, np.ndarray)
+        ]
         suffix = f" | {stage}"
         return [
-            variable
-            for variable in self.spectra.domain.attributes
-            if isinstance(variable, ContinuousVariable)
-            and variable.name.endswith(suffix)
+            [idx, variable] for (idx, variable) in enumerate(variables) if variable.endswith(suffix)
         ]
 
     def _reference(self) -> ContinuousVariable | None:
-        candidates = self._matching(self.solution_a_series)
+        indexed_candidates = self._matching(self.solution_a_series)
         background = [
-            variable
-            for variable in candidates
-            if variable.name.startswith("Background | ")
+            variable for variable in indexed_candidates
+            if variable[1].startswith("Background | ")
         ]
-        return background[0] if background else (
-            candidates[0] if candidates else None
-        )
+        return background[0] if background else None
 
     def _ratios(self) -> np.ndarray | None:
         if self.titration is None:
@@ -311,18 +319,19 @@ class OWBindingData(OWWidget):
         self.plot.setLabel("left", "CD", units=cd_unit)
         self.line.label.setFormat(f"{{value:.3f}} {wavelength_unit}")
         if self.spectra is not None and self._wavelengths is not None:
-            variables = self._matching(self.corrected_series)
+            indexed_variables = self._matching(self.corrected_series)
+            variable_indices = [i[0] for i in indexed_variables]
             reference = self._reference()
             if reference is not None:
-                variables.insert(0, reference)
-            for index, variable in enumerate(variables):
+                variable_indices.insert(0, reference[0])
+            for index, variable in enumerate(variable_indices):
                 self.plot.plot(
                     self._wavelengths,
                     np.asarray(
-                        self.spectra.get_column(variable), dtype=float
+                        self.spectra[variable].x, dtype=float
                     ),
                     pen=pg.mkPen(
-                        pg.intColor(index, max(len(variables), 1)),
+                        pg.intColor(index, max(len(variable_indices), 1)),
                         width=1.2,
                     ),
                 )
@@ -348,8 +357,8 @@ class OWBindingData(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        corrected = self._matching(self.corrected_series)
-        if not corrected:
+        indexed_corrected = self._matching(self.corrected_series)
+        if not indexed_corrected:
             self.Error.missing_corrected(self.corrected_series)
             self.Outputs.data.send(None)
             return
@@ -359,10 +368,10 @@ class OWBindingData(OWWidget):
             self.Error.missing_ratios()
             self.Outputs.data.send(None)
             return
-        if len(ratios) != len(corrected):
+        if len(ratios) != len(indexed_corrected):
             self.Error.mismatched_points(
                 f"There are {len(ratios)} titration ratios but "
-                f"{len(corrected)} spectra"
+                f"{len(indexed_corrected)} spectra"
             )
             self.Outputs.data.send(None)
             return
@@ -375,11 +384,18 @@ class OWBindingData(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        raw_variables = [reference, *corrected]
+        # do some sorting out of the idx, name pairs that we get from the _variables_matching function
+        corrected_indices = [i[0] for i in indexed_corrected]
+        corrected_names = [i[1] for i in indexed_corrected]
+        solution_a_idx = reference[0]
+        solution_a_name = reference[1]
+        variables_idx = [solution_a_idx, *corrected_indices]
+        sample_names = [solution_a_name, *corrected_names]
+
         cd_mdeg = np.asarray(
             [
-                self.spectra.get_column(variable)[row]
-                for variable in raw_variables
+                self.spectra[variable][row]
+                for variable in variables_idx
             ],
             dtype=float,
         )
@@ -401,18 +417,15 @@ class OWBindingData(OWWidget):
         # concentration [B] (M) = titration point * host concentration (M).
         concentration_b_m = titration_point * concentration_m
 
-        sample_names = ["Solution A"] + [
-            split_series_name(variable.name)[0] for variable in corrected
-        ]
-        cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
+        # cd_unit = self.spectra.attributes.get("unit", CD_SIGNAL_UNIT)
         cd_variable = ContinuousVariable("CD")
-        cd_variable.attributes["unit"] = cd_unit
+        # cd_variable.attributes["unit"] = cd_unit
         change_variable = ContinuousVariable("Change in CD")
-        change_variable.attributes["unit"] = cd_unit
+        # change_variable.attributes["unit"] = cd_unit
         delta_epsilon_variable = ContinuousVariable("Delta Epsilon")
-        delta_epsilon_variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
+        # delta_epsilon_variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
         concentration_b_variable = ContinuousVariable("Conc [B]")
-        concentration_b_variable.attributes["unit"] = str(Q_(1, CONCENTRATION_UNIT).units)
+        # concentration_b_variable.attributes["unit"] = str(Q_(1, CONCENTRATION_UNIT).units)
         domain = Domain(
             [
                 ContinuousVariable("Titration point"),
@@ -425,6 +438,7 @@ class OWBindingData(OWWidget):
             ],
             metas=[StringVariable("Sample")],
         )
+        
         output = Table.from_numpy(
             domain,
             np.column_stack(
