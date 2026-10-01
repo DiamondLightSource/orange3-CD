@@ -217,6 +217,7 @@ class OWCDTitrationProcessing(OWWidget):
         gui.button(buttons, self, "Clear", callback=self._clear_data_files)
 
         zero_box = gui.widgetBox(self.controlArea, "Zero-level wavelength range")
+        #TODO: can we parse this from the data files?
         wavelength_unit = f"{Q_(1, WAVELENGTH_UNIT).units:~}"
         gui.doubleSpin(
             zero_box, self, "zero_range_min", -1e6, 1e6,
