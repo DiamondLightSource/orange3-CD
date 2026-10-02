@@ -8,12 +8,19 @@ import numpy as np
 import pyqtgraph as pg
 from AnyQt.QtGui import QColor
 from AnyQt.QtWidgets import QAbstractItemView
-from Orange.data import Table, StringVariable
+from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
 from . import Q_
+from .utils import (
+    InvalidWavelength,
+    SpectraError,
+    matching_spectra,
+    spectrum_names,
+    wavelengths as spectra_wavelengths,
+)
 
 PROCESSING_STAGES = [
     "All spectra",
@@ -229,14 +236,11 @@ class OWCDSpectraPlot(OWWidget):
         if self.data is None:
             stages = ["All spectra"]
         else:
-            variables = [
-                variable[0]
-                for variable in self.data.metas
-                if isinstance(variable, np.ndarray)
-            ]
-            stages = sorted({variable.split("|")[-1].strip() 
-                             for variable in variables
-                                })
+            try:
+                names = spectrum_names(self.data)
+            except SpectraError:
+                names = []
+            stages = sorted({name.split("|")[-1].strip() for name in names})
             stages.insert(0, "All spectra")
         self.processing_stages = stages
 
@@ -254,22 +258,14 @@ class OWCDSpectraPlot(OWWidget):
         self._populate_spectra()
         self._replot()
 
-    def _matching_variables(self) -> list[list[int, str]]:
+    def _matching_variables(self) -> list[tuple[int, str]]:
         if self.data is None:
             return []
-
-        variables = [
-            variable[0]
-            for variable in self.data.metas
-            if isinstance(variable, np.ndarray)
-        ]
-        if self.selected_stage == "All spectra":
-            return [[idx, var] for (idx, var) in enumerate(variables)]
-
-        suffix = f" | {self.selected_stage}"
-        return [
-            [idx, variable] for (idx, variable) in enumerate(variables) if variable.endswith(suffix)
-        ]
+        stage = None if self.selected_stage == "All spectra" else self.selected_stage
+        try:
+            return matching_spectra(self.data, stage)
+        except SpectraError:
+            return []
 
     def _populate_spectra(self) -> None:
         matched_vars = self._matching_variables()
@@ -293,15 +289,7 @@ class OWCDSpectraPlot(OWWidget):
         signal_unit = None
 
         if self.data is not None:
-            try:
-                wavelength_variable = self.data.domain.metas[0]
-            except IndexError:
-                wavelength_variable = None
-
-            if isinstance(wavelength_variable, StringVariable) and (
-                wavelength_variable in self.data.domain.metas
-            ):
-                wavelength_unit = self.data.attributes.get("wavelength_unit")
+            wavelength_unit = self.data.attributes.get("wavelength_unit")
 
             variables = self._matching_variables()
             if variables:
@@ -319,28 +307,12 @@ class OWCDSpectraPlot(OWWidget):
             return None
 
         try:
-            variable = self.data.domain.metas[0]
-        except IndexError:
-            self.Error.missing_wavelength()
-            return None
-
-        if variable not in self.data.domain.metas or not isinstance(
-            variable, StringVariable
-        ):
-            self.Error.missing_wavelength()
-            return None
-
-        try:
-            wavelength = np.array(
-                [float(var.name) for var in self.data.domain.attributes]
-            )
-        except ValueError:
+            return spectra_wavelengths(self.data)
+        except InvalidWavelength:
             self.Error.invalid_wavelength()
-            return None
-        if np.isnan(wavelength).any():
-            self.Error.invalid_wavelength()
-            return None
-        return wavelength
+        except SpectraError:
+            self.Error.missing_wavelength()
+        return None
 
     def _replot(self) -> None:
         self.plot_item.clear()

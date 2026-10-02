@@ -7,12 +7,21 @@ from __future__ import annotations
 import numpy as np
 from pint import Quantity
 
-from Orange.data import ContinuousVariable, Table, StringVariable
+from Orange.data import Domain, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
+from .utils import (
+    InvalidWavelength,
+    SpectraError,
+    matching_spectra,
+    reference_spectrum,
+    split_series_name,
+    stages as spectra_stages,
+    wavelengths as spectra_wavelengths,
+)
 
 MDEG_PER_DELTA_A = 32980.0
 PATHLENGTH_UNIT = "centimeter"
@@ -25,14 +34,6 @@ DELTA_EPSILON_SUFFIX = "delta_epsilon"
 DEFAULT_PATHLENGTH_CM = 1.0
 DEFAULT_MEAN_RESIDUE_MW = 113.0
 DEFAULT_SOLUTION_A_MW = 1.0
-
-
-def split_series_name(variable_name: str) -> tuple[str, str] | None:
-    if " | " not in variable_name:
-        return None
-    sample, stage = variable_name.rsplit(" | ", maxsplit=1)
-    sample, stage = sample.strip(), stage.strip()
-    return (sample, stage) if sample and stage else None
 
 
 def calculate_delta_epsilon(
@@ -236,10 +237,10 @@ class OWDeltaEpsilon(OWWidget):
     def _update_series_controls(self) -> None:
         stages: list[str] = []
         if self.data is not None:
-            for variable in self.data.metas:
-                parsed = split_series_name(variable[0])
-                if parsed and parsed[1] not in stages:
-                    stages.append(parsed[1])
+            try:
+                stages = spectra_stages(self.data)
+            except SpectraError:
+                pass
         self.available_series = stages
         corrected = self._preferred(stages, self.corrected_series, DEFAULT_CORRECTED_SERIES)
         solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
@@ -269,59 +270,35 @@ class OWDeltaEpsilon(OWWidget):
         if not self._updating_series:
             self.commit.deferred()
 
-    def _wavelength_variable(self) -> np.ndarray | None:
+    def _wavelength_domain(self) -> Domain | None:
+        """Return the input domain if it has a valid wavelength axis."""
         if self.data is None:
             return None
-
         try:
-            variable = [i for i in self.data.domain.metas if i.name == "Wavelength"][0]
-        except IndexError:
-            self.Error.missing_wavelength()
-            return None
-
-        if variable not in self.data.domain.metas or not isinstance(
-            variable, StringVariable
-        ):
-            self.Error.missing_wavelength()
-            return None
-
-        try:
-            wavelength = np.array(
-                [float(var.name) for var in self.data.domain.attributes]
-            )
-        except ValueError:
+            spectra_wavelengths(self.data)
+        except InvalidWavelength:
             self.Error.invalid_wavelength()
             return None
-        if np.isnan(wavelength).any():
-            self.Error.invalid_wavelength()
+        except SpectraError:
+            self.Error.missing_wavelength()
             return None
         return self.data.domain
 
-    def _variables_matching(self, stage: str) -> list[np.ndarray]:
+    def _variables_matching(self, stage: str) -> list[tuple[int, str]]:
         if self.data is None or not stage:
             return []
-        
-        variables = [
-            variable[0]
-            for variable in self.data.metas
-            if isinstance(variable, np.ndarray)
-        ]
-        
-        suffix = f" | {stage}"
-        return [
-            [idx, variable] for (idx, variable) in enumerate(variables) if variable.endswith(suffix)
-        ]
+        try:
+            return matching_spectra(self.data, stage)
+        except SpectraError:
+            return []
 
-    def _solution_a_variable(self) -> ContinuousVariable | None:
-        indexed_candidates = self._variables_matching(self.solution_a_series)
-        background = [
-            variable for variable in indexed_candidates
-            if variable[1].startswith("Background | ")
-        ]
-        return background[0] if background else (indexed_candidates[0] if indexed_candidates else None)
+    def _solution_a_variable(self) -> tuple[int, str] | None:
+        return reference_spectrum(
+            self._variables_matching(self.solution_a_series)
+        )
 
     @staticmethod
-    def _delta_name(variable: ContinuousVariable) -> str:
+    def _delta_name(variable: str) -> str:
         parsed = split_series_name(variable)
         if parsed is None:
             return f"{variable}_{DELTA_EPSILON_SUFFIX}"
@@ -354,9 +331,8 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        wavelength = self._wavelength_variable()
+        wavelength = self._wavelength_domain()
         if wavelength is None:
-            self.Error.missing_wavelength()
             self.Outputs.data.send(None)
             return
         if not self.available_series:
