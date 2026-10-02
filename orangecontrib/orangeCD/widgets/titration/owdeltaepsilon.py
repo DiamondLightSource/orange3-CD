@@ -19,6 +19,7 @@ from .utils import (
     MDEG_PER_DELTA_A,
     PATHLENGTH_KEY,
     SPECTRUM_UNIT_KEY,
+    UNIT_META,
     InvalidWavelength,
     SpectraError,
     build_spectra_table,

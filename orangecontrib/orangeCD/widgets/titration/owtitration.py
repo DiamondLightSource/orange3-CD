@@ -16,6 +16,27 @@ from .utils import quantity_string
 from pint import Quantity
 
 
+def _round_quantity(quantity: Quantity, unit: str, digits: int) -> Quantity:
+    """Round to ``digits`` decimals of ``unit``, keeping ``quantity``'s units.
+
+    Rounding the bare magnitude would round in whatever unit the user chose,
+    so 21 uL in millilitres would become 0.0.
+    """
+    rounded = Q_(round(float(quantity.to(unit).magnitude), digits), unit)
+    converted = rounded.to(quantity.units)
+    return Q_(round(float(converted.magnitude), 12), quantity.units)
+
+
+def round_volume(volume: Quantity) -> Quantity:
+    """Round a volume to the 0.1 uL pipetting precision."""
+    return _round_quantity(volume, "microliter", 1)
+
+
+def round_concentration(concentration: Quantity) -> Quantity:
+    """Round a concentration to 0.1 uM."""
+    return _round_quantity(concentration, "micromolar", 1)
+
+
 class TitrationMode(str, Enum):
     FIXED = "fixed"
     INCREASING = "increasing"
@@ -160,7 +181,7 @@ class CDTitrationCalculator:
         Constant volume of stock solution A required.
         """
 
-        return round((self.working_con_a / self.stock_con_a) * self.starting_cell_volume, 1)
+        return round_volume((self.working_con_a / self.stock_con_a) * self.starting_cell_volume)
 
     def _required_stock_b_volume(
         self,
@@ -407,9 +428,9 @@ class CDTitrationCalculator:
                 )
             )
 
-            volume_stock_b = round(calculated_volume,1)
+            volume_stock_b = round_volume(calculated_volume)
 
-            baseline_volume = round(self.starting_cell_volume - volume_a - volume_stock_b, 1)
+            baseline_volume = round_volume(self.starting_cell_volume - volume_a - volume_stock_b)
 
             if baseline_volume < 0:
                 raise ValueError(
@@ -417,7 +438,7 @@ class CDTitrationCalculator:
                     "The combined volumes of solutions A and B exceed the fixed cell volume."
                 )
 
-            concentration_b = round(self.working_con_a * point.ratio, 1)
+            concentration_b = round_concentration(self.working_con_a * point.ratio)
 
             rows.append(
                 FixedRow(
@@ -447,7 +468,7 @@ class CDTitrationCalculator:
 
         volume_a = self.volume_solution_a
 
-        volume_buffer = round(self.starting_cell_volume - volume_a, 1)
+        volume_buffer = round_volume(self.starting_cell_volume - volume_a)
 
         rows: list[IncreasingRow] = []
 
@@ -469,11 +490,11 @@ class CDTitrationCalculator:
                 )
             )
 
-            step_volume = round(calculated_step_volume, 1)
+            step_volume = round_volume(calculated_step_volume)
 
-            total_stock_b = round(total_stock_b + step_volume, 1)
+            total_stock_b = round_volume(total_stock_b + step_volume)
 
-            total_cell_volume = round(self.starting_cell_volume + total_stock_b, 1)
+            total_cell_volume = round_volume(self.starting_cell_volume + total_stock_b)
 
             dilution_factor = round(total_cell_volume / self.starting_cell_volume, 3)
 
@@ -491,7 +512,7 @@ class CDTitrationCalculator:
 
             previous_ratio = point.ratio
 
-        max_volume_allowed = round(self.starting_cell_volume * 0.15, 1)
+        max_volume_allowed = round_volume(self.starting_cell_volume * 0.15)
 
         return TitrationResult(
             mode=TitrationMode.INCREASING,
