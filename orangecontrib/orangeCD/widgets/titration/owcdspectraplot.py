@@ -13,12 +13,16 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
-from . import Q_
 from .utils import (
     InvalidWavelength,
     SpectraError,
     matching_spectra,
+    WAVELENGTH_UNIT_KEY,
+    shared_unit,
     spectrum_names,
+    spectrum_units,
+    table_unit,
+    unit_symbol,
     wavelengths as spectra_wavelengths,
 )
 
@@ -278,28 +282,28 @@ class OWCDSpectraPlot(OWWidget):
         self.selected_spectra = list(range(len(self.spectra_names)))
         self._replot()
 
-    @staticmethod
-    def _unit_symbol(unit_name: str | None) -> str | None:
-        if not unit_name:
-            return None
-        return f"{Q_(1, unit_name).units:~}"
-
     def _update_axis_labels(self) -> None:
         wavelength_unit = None
         signal_unit = None
 
         if self.data is not None:
-            wavelength_unit = self.data.attributes.get("wavelength_unit")
+            wavelength_unit = table_unit(self.data, WAVELENGTH_UNIT_KEY)
 
-            variables = self._matching_variables()
-            if variables:
-                signal_unit = self.data.attributes.get("spectrum_unit")
+            # Only label the y axis when all plotted spectra share one unit.
+            row_units = spectrum_units(self.data)
+            plotted = [
+                row_units[self._row_map[index]]
+                for index in self.selected_spectra
+                if 0 <= index < len(self._row_map)
+            ]
+            if plotted:
+                signal_unit = shared_unit(plotted)
 
         self.plot_item.setLabel(
-            "bottom", "Wavelength", units=self._unit_symbol(wavelength_unit)
+            "bottom", "Wavelength", units=unit_symbol(wavelength_unit)
         )
         self.plot_item.setLabel(
-            "left", "Circular dichroism", units=self._unit_symbol(signal_unit)
+            "left", "Circular dichroism", units=unit_symbol(signal_unit)
         )
 
     def _wavelength(self) -> np.ndarray | None:

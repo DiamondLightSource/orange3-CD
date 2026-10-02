@@ -14,10 +14,15 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
-from . import Q_
+from .utils import (
+    SPECTRUM_UNIT_KEY,
+    WAVELENGTH_UNIT_KEY,
+    unit_string,
+    unit_symbol,
+)
 
-WAVELENGTH_UNIT = "nanometer"
-CD_SIGNAL_UNIT = "millidegree"
+WAVELENGTH_UNITS = ["nanometer", "angstrom", "micrometer"]
+CD_SIGNAL_UNITS = ["millidegree", "degree"]
 
 
 def test_empty_line(line: str) -> str | None:
@@ -120,7 +125,9 @@ def orange_table_to_dataframe(table: Table) -> pd.DataFrame:
     )
 
 
-def dataframe_to_orange_table(dataframe: pd.DataFrame) -> Table:
+def dataframe_to_orange_table(
+    dataframe: pd.DataFrame, wavelength_unit: str, spectrum_unit: str
+) -> Table:
 
     output = dataframe.copy()
     output.columns = [
@@ -146,8 +153,8 @@ def dataframe_to_orange_table(dataframe: pd.DataFrame) -> Table:
         metas = np.array(output.columns, dtype=object)[:, np.newaxis],
     )
 
-    table.attributes["wavelength_unit"] = str(Q_(1, WAVELENGTH_UNIT).units)
-    table.attributes["spectrum_unit"] = str(Q_(1, CD_SIGNAL_UNIT).units)
+    table.attributes[WAVELENGTH_UNIT_KEY] = unit_string(wavelength_unit)
+    table.attributes[SPECTRUM_UNIT_KEY] = unit_string(spectrum_unit)
 
     return table
 
@@ -167,6 +174,8 @@ class OWCDTitrationProcessing(OWWidget):
     selected_data_files = Setting([])
     zero_range_min = Setting(440.0)
     zero_range_max = Setting(450.0)
+    wavelength_unit = Setting(WAVELENGTH_UNITS[0])
+    cd_unit = Setting(CD_SIGNAL_UNITS[0])
     data_file_names: list[str] = []
 
     class Inputs:
@@ -216,17 +225,27 @@ class OWCDTitrationProcessing(OWWidget):
         gui.button(buttons, self, "Select files…", callback=self._choose_data_files)
         gui.button(buttons, self, "Clear", callback=self._clear_data_files)
 
+        units_box = gui.widgetBox(self.controlArea, "Units of the data files")
+        gui.comboBox(
+            units_box, self, "wavelength_unit", label="Wavelength:",
+            items=WAVELENGTH_UNITS, sendSelectedValue=True, valueType=str,
+            orientation="horizontal", callback=self._units_changed,
+        )
+        gui.comboBox(
+            units_box, self, "cd_unit", label="CD signal:",
+            items=CD_SIGNAL_UNITS, sendSelectedValue=True, valueType=str,
+            orientation="horizontal", callback=self._units_changed,
+        )
+
         zero_box = gui.widgetBox(self.controlArea, "Zero-level wavelength range")
-        #TODO: can we parse this from the data files?
-        wavelength_unit = f"{Q_(1, WAVELENGTH_UNIT).units:~}"
-        gui.doubleSpin(
+        self.zero_min_spin = gui.doubleSpin(
             zero_box, self, "zero_range_min", -1e6, 1e6,
-            step=1.0, decimals=2, label=f"Lower limit ({wavelength_unit})",
+            step=1.0, decimals=2, label="Lower limit",
             orientation="horizontal", callback=self._range_controls_changed,
         )
-        gui.doubleSpin(
+        self.zero_max_spin = gui.doubleSpin(
             zero_box, self, "zero_range_max", -1e6, 1e6,
-            step=1.0, decimals=2, label=f"Upper limit ({wavelength_unit})",
+            step=1.0, decimals=2, label="Upper limit",
             orientation="horizontal", callback=self._range_controls_changed,
         )
         gui.widgetLabel(
@@ -236,6 +255,20 @@ class OWCDTitrationProcessing(OWWidget):
 
         gui.button(self.controlArea, self, "Process data", callback=self.process)
         gui.rubber(self.controlArea)
+
+    def _apply_unit_labels(self) -> None:
+        wavelength = unit_symbol(self.wavelength_unit)
+        self.zero_min_spin.setSuffix(f" {wavelength}")
+        self.zero_max_spin.setSuffix(f" {wavelength}")
+        self.plot_widget.setLabel("bottom", "Wavelength", units=wavelength)
+        self.plot_widget.setLabel(
+            "left", "Circular dichroism", units=unit_symbol(self.cd_unit)
+        )
+
+    def _units_changed(self) -> None:
+        self._apply_unit_labels()
+        if self.titration is not None and self.data_files:
+            self.process()
 
     def _add_reference_selector(self, parent, label: str, setting: str) -> None:
         row = gui.hBox(parent)
@@ -254,9 +287,8 @@ class OWCDTitrationProcessing(OWWidget):
         plot_box = gui.vBox(self.mainArea)
         gui.widgetLabel(plot_box, "Raw spectra and zero-level averaging range")
         self.plot_widget = pg.PlotWidget(plot_box)
-        self.plot_widget.setLabel("bottom", "Wavelength", units=f"{Q_(1, WAVELENGTH_UNIT).units:~}")
-        self.plot_widget.setLabel("left", "Circular dichroism", units=f"{Q_(1, CD_SIGNAL_UNIT).units:~}")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.2)
+        self._apply_unit_labels()
         plot_box.layout().addWidget(self.plot_widget)
 
         line_pen = pg.mkPen("#d62728", width=2)
@@ -479,7 +511,9 @@ class OWCDTitrationProcessing(OWWidget):
                 })
 
             output = pd.DataFrame(processed, index=cd_data.index)
-            orange_output = dataframe_to_orange_table(output)
+            orange_output = dataframe_to_orange_table(
+                output, self.wavelength_unit, self.cd_unit
+            )
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
             self.Error.processing_failed(str(exc))
             self.Outputs.data.send(None)

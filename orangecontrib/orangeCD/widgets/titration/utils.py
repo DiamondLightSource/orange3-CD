@@ -10,9 +10,24 @@ from __future__ import annotations
 
 import numpy as np
 from Orange.data import StringVariable, Table
+from pint import Quantity
+
+from . import Q_
 
 WAVELENGTH_META = "Wavelength"
+UNIT_META = "Unit"
 BACKGROUND_PREFIX = "Background | "
+
+# Table attribute keys. Units are stored as pint-parseable strings.
+WAVELENGTH_UNIT_KEY = "wavelength_unit"
+SPECTRUM_UNIT_KEY = "spectrum_unit"
+CONCENTRATION_KEY = "solution_a_concentration"
+PATHLENGTH_KEY = "pathlength"
+MEASUREMENT_WAVELENGTH_KEY = "measurement_wavelength"
+
+# CD signal that corresponds to one unit of absorbance difference.
+MDEG_PER_DELTA_A = Q_(32980.0, "millidegree")
+DELTA_EPSILON_UNIT = "liter / mole / centimeter"
 
 
 class SpectraError(ValueError):
@@ -89,3 +104,62 @@ def reference_spectrum(
         if candidate[1].startswith(BACKGROUND_PREFIX):
             return candidate
     return candidates[0] if candidates else None
+
+
+def unit_string(unit: str) -> str:
+    """Normalise a unit name through pint, e.g. ``"nanometer"``."""
+    return str(Q_(1, unit).units)
+
+
+def unit_symbol(unit: str | None) -> str | None:
+    """Short display symbol for a unit, e.g. ``"nm"``; None if no unit."""
+    if not unit:
+        return None
+    return f"{Q_(1, unit).units:~}"
+
+
+def table_unit(table: Table, key: str) -> str | None:
+    """Return the unit string stored in ``table.attributes[key]``."""
+    value = table.attributes.get(key)
+    return str(value) if value else None
+
+
+def quantity_string(quantity: Quantity) -> str:
+    """Serialise a quantity for storage in ``table.attributes``."""
+    return f"{float(quantity.magnitude)!r} {quantity.units}"
+
+
+def table_quantity(table: Table, key: str) -> Quantity:
+    """Read a quantity stored with :func:`quantity_string`.
+
+    Raises ``KeyError`` if absent and ``ValueError`` if it cannot be parsed
+    or is not a finite positive number.
+    """
+    text = table.attributes[key]
+    try:
+        quantity = Q_(text)
+        magnitude = float(quantity.magnitude)
+    except Exception as exc:  # pint raises several error types
+        raise ValueError(f"{key}: cannot parse {text!r}") from exc
+    if not np.isfinite(magnitude) or magnitude <= 0:
+        raise ValueError(f"{key}: must be greater than zero")
+    return quantity
+
+
+def spectrum_units(table: Table) -> list[str | None]:
+    """Return the unit of every spectrum row.
+
+    A ``Unit`` string meta takes priority (needed when one table mixes
+    units, e.g. mdeg and delta epsilon); otherwise the table-wide
+    ``spectrum_unit`` attribute applies to every row.
+    """
+    for index, variable in enumerate(table.domain.metas):
+        if variable.name == UNIT_META and isinstance(variable, StringVariable):
+            return [str(value) or None for value in table.metas[:, index]]
+    return [table_unit(table, SPECTRUM_UNIT_KEY)] * len(table)
+
+
+def shared_unit(units) -> str | None:
+    """Return the single unit common to all of ``units``, else None."""
+    unique = set(units)
+    return unique.pop() if len(unique) == 1 else None

@@ -7,26 +7,34 @@ from __future__ import annotations
 import numpy as np
 from pint import Quantity
 
-from Orange.data import Domain, Table
+from Orange.data import Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
 from .utils import (
+    CONCENTRATION_KEY,
+    DELTA_EPSILON_UNIT,
+    MDEG_PER_DELTA_A,
+    PATHLENGTH_KEY,
+    SPECTRUM_UNIT_KEY,
+    UNIT_META,
+    WAVELENGTH_META,
     InvalidWavelength,
     SpectraError,
     matching_spectra,
+    quantity_string,
     reference_spectrum,
+    spectrum_units,
     split_series_name,
     stages as spectra_stages,
+    unit_string,
     wavelengths as spectra_wavelengths,
 )
 
-MDEG_PER_DELTA_A = 32980.0
 PATHLENGTH_UNIT = "centimeter"
 MOLECULAR_WEIGHT_UNIT = "gram / mole"
-DELTA_EPSILON_UNIT = "liter / mole / centimeter"
 CONCENTRATION_COLUMN = "working_concentration_a"
 DEFAULT_CORRECTED_SERIES = "plus_sol_A"
 DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
@@ -37,34 +45,37 @@ DEFAULT_SOLUTION_A_MW = 1.0
 
 
 def calculate_delta_epsilon(
-    cd_mdeg: np.ndarray,
+    cd: Quantity,
     concentration: Quantity,
-    pathlength_cm: float,
-    mean_residue_molecular_weight: float,
-    solution_a_molecular_weight: float,
-) -> np.ndarray:
-    """Convert corrected CD in mdeg to mean-residue delta epsilon."""
-    concentration_m = float(concentration.to("molar").magnitude)
+    pathlength: Quantity,
+    mean_residue_molecular_weight: Quantity,
+    solution_a_molecular_weight: Quantity,
+) -> Quantity:
+    """Convert corrected CD to mean-residue delta epsilon.
+
+    Every argument carries its own unit; the result is in
+    ``DELTA_EPSILON_UNIT``. Raises ``ValueError`` for non-positive
+    parameters and ``pint.DimensionalityError`` (a ``TypeError``) for
+    incompatible units.
+    """
     parameters = {
-        "Concentration": concentration_m,
-        "Pathlength": pathlength_cm,
+        "Concentration": concentration,
+        "Pathlength": pathlength,
         "Mean residue molecular weight": mean_residue_molecular_weight,
         "Solution A molecular weight": solution_a_molecular_weight,
     }
-    for name, value in parameters.items():
+    for name, quantity in parameters.items():
+        value = float(quantity.magnitude)
         if not np.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a finite value greater than zero")
 
+    delta_a = (cd.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to("dimensionless")
+    residue_ratio = (
+        mean_residue_molecular_weight / solution_a_molecular_weight
+    ).to("dimensionless")
     return (
-        np.asarray(cd_mdeg, dtype=float)
-        * mean_residue_molecular_weight
-        / (
-            MDEG_PER_DELTA_A
-            * concentration_m
-            * pathlength_cm
-            * solution_a_molecular_weight
-        )
-    )
+        delta_a * residue_ratio / (concentration * pathlength)
+    ).to(DELTA_EPSILON_UNIT)
 
 
 class OWDeltaEpsilon(OWWidget):
@@ -194,8 +205,8 @@ class OWDeltaEpsilon(OWWidget):
         )
         equation = gui.widgetLabel(
             conversion_box,
-            "Delta epsilon = CD(mdeg) x mean residue molecular weight / "
-            "[32980 x concentration(M) x pathlength(cm) x Solution A MW]. "
+            "Delta epsilon = (CD / 32980 mdeg) x mean residue molecular weight / "
+            "(concentration x pathlength x Solution A MW). "
             "Solution A concentration is taken from the connected Titration Table.",
         )
         equation.setWordWrap(True)
@@ -355,38 +366,60 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        # do some sorting out of the idx, name pairs that we get from the _variables_matching function
-        corrected_indices = [i[0] for i in indexed_corrected]
-        corrected_names = [i[1] for i in indexed_corrected]
-        solution_a_idx = solution_a[0]
-        solution_a_name = solution_a[1]
-        raw_variables_idx = [solution_a_idx, *corrected_indices]
-        raw_variable_names = [solution_a_name, *corrected_names]
-
-        raw_values = np.column_stack(
-            [self.data[variable].x for variable in raw_variables_idx]
-        )
-        try:
-            converted = calculate_delta_epsilon(
-                raw_values,
-                concentration,
-                self.pathlength_cm,
-                self.mean_residue_molecular_weight,
-                self.solution_a_molecular_weight,
+        row_units = spectrum_units(self.data)
+        raw_rows = [solution_a, *indexed_corrected]
+        raw_variables_idx = [row for row, _ in raw_rows]
+        raw_variable_names = [name for _, name in raw_rows]
+        raw_units = [row_units[row] for row in raw_variables_idx]
+        if not all(raw_units):
+            self.Error.invalid_parameter(
+                f"The input table has no '{SPECTRUM_UNIT_KEY}' attribute "
+                f"or '{UNIT_META}' meta for the selected spectra."
             )
+            self.Outputs.data.send(None)
+            return
+
+        pathlength = Q_(self.pathlength_cm, PATHLENGTH_UNIT)
+        mean_residue_mw = Q_(
+            self.mean_residue_molecular_weight, MOLECULAR_WEIGHT_UNIT
+        )
+        solution_a_mw = Q_(self.solution_a_molecular_weight, MOLECULAR_WEIGHT_UNIT)
+        try:
+            # (n_spectra, n_wavelengths), each row in its own unit.
+            raw_values = self.data.X[raw_variables_idx]
+            converted = np.vstack([
+                calculate_delta_epsilon(
+                    Q_(row_values, unit),
+                    concentration,
+                    pathlength,
+                    mean_residue_mw,
+                    solution_a_mw,
+                ).magnitude
+                for row_values, unit in zip(raw_values, raw_units)
+            ])
         except (TypeError, ValueError) as exc:
             self.Error.invalid_parameter(str(exc))
             self.Outputs.data.send(None)
             return
 
-        delta_variables = [self._delta_name(var) for var in raw_variable_names]
-
+        delta_unit = unit_string(DELTA_EPSILON_UNIT)
+        delta_names = [self._delta_name(name) for name in raw_variable_names]
+        output_domain = Domain(
+            wavelength.attributes,
+            metas=[
+                next(m for m in wavelength.metas if m.name == WAVELENGTH_META),
+                StringVariable(UNIT_META),
+            ],
+        )
         output = Table.from_numpy(
-            wavelength,
-            np.column_stack((raw_values, converted)).T,
-            metas = np.asarray(
-                [*raw_variable_names, *delta_variables], dtype=object
-                ).reshape(-1,1),
+            output_domain,
+            np.vstack((raw_values, converted)),
+            metas=np.column_stack((
+                np.asarray([*raw_variable_names, *delta_names], dtype=object),
+                np.asarray(
+                    [*raw_units, *[delta_unit] * len(delta_names)], dtype=object
+                ),
+            )),
             attributes=dict(self.data.attributes),
         )
         output.name = (
@@ -397,10 +430,10 @@ class OWDeltaEpsilon(OWWidget):
             "corrected_series": self.corrected_series,
             "solution_a_series": self.solution_a_series,
             "delta_epsilon_suffix": DELTA_EPSILON_SUFFIX,
-            "solution_a_concentration_M": float(concentration.to("molar").magnitude),
-            "pathlength_cm": self.pathlength_cm,
-            "mean_residue_molecular_weight": self.mean_residue_molecular_weight,
-            "solution_a_molecular_weight": self.solution_a_molecular_weight,
+            CONCENTRATION_KEY: quantity_string(concentration),
+            PATHLENGTH_KEY: quantity_string(pathlength),
+            "mean_residue_molecular_weight": quantity_string(mean_residue_mw),
+            "solution_a_molecular_weight": quantity_string(solution_a_mw),
         })
         self.Outputs.data.send(output)
 

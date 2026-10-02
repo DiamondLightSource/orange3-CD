@@ -13,22 +13,32 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
 from .utils import (
+    CONCENTRATION_KEY,
+    DELTA_EPSILON_UNIT,
+    MDEG_PER_DELTA_A,
+    MEASUREMENT_WAVELENGTH_KEY,
+    PATHLENGTH_KEY,
+    WAVELENGTH_UNIT_KEY,
     InvalidWavelength,
     SpectraError,
     matching_spectra,
+    quantity_string,
     reference_spectrum,
+    shared_unit,
+    spectrum_units,
     split_series_name,
     stages as spectra_stages,
+    table_quantity,
+    table_unit,
+    unit_string,
+    unit_symbol,
     wavelengths as spectra_wavelengths,
 )
 
 DEFAULT_CORRECTED_SERIES = "plus_sol_A"
 DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
-MDEG_PER_DELTA_A = 32980.0
-WAVELENGTH_UNIT = "nanometer"
-CD_SIGNAL_UNIT = "millidegree"
+# Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
-DELTA_EPSILON_UNIT = "liter / mole / centimeter"
 
 
 def continuous_column(table: Table, names: tuple[str, ...]) -> np.ndarray | None:
@@ -83,6 +93,7 @@ class OWBindingData(OWWidget):
         )
         invalid_conversion_metadata = Msg("{} must be greater than zero.")
         mismatched_points = Msg("{}")
+        incompatible_units = Msg("{}")
 
     def __init__(self) -> None:
         super().__init__()
@@ -94,32 +105,25 @@ class OWBindingData(OWWidget):
         self._build_controls()
         self._build_plot()
 
-    @staticmethod
-    def _unit_symbol(unit_name: str) -> str:
-        return f"{Q_(1, unit_name).units:~}"
+    def _wavelength_unit(self) -> str | None:
+        if self.spectra is None:
+            return None
+        return table_unit(self.spectra, WAVELENGTH_UNIT_KEY)
 
-    def _axis_units(self) -> tuple[str, str]:
-        """Unit symbols for the plot axes, from the connected spectra if available."""
-        wavelength_unit = WAVELENGTH_UNIT
-        cd_unit = CD_SIGNAL_UNIT
-        if self.spectra is not None:
-            try:
-                wavelength_variable = self.spectra.domain["Wavelength"]
-            except KeyError:
-                wavelength_variable = None
-            if wavelength_variable is not None:
-                wavelength_unit = wavelength_variable.attributes.get(
-                    "unit", WAVELENGTH_UNIT
-                )
-            reference = self._reference()
-            # TODO: FIX THIS
-            # if reference is not None:
-            #     cd_unit = reference.attributes.get("unit", CD_SIGNAL_UNIT)
-        return self._unit_symbol(wavelength_unit), self._unit_symbol(cd_unit)
+    def _plotted_cd_unit(self) -> str | None:
+        """The CD unit shared by the plotted spectra, if there is one."""
+        if self.spectra is None:
+            return None
+        row_units = spectrum_units(self.spectra)
+        rows = [row for row, _ in self._matching(self.corrected_series)]
+        reference = self._reference()
+        if reference is not None:
+            rows.append(reference[0])
+        return shared_unit(row_units[row] for row in rows) if rows else None
 
     def _build_controls(self) -> None:
         box = gui.widgetBox(self.controlArea, "Binding-data settings")
-        gui.doubleSpin(
+        self.wavelength_spin = gui.doubleSpin(
             box,
             self,
             "wavelength",
@@ -127,7 +131,7 @@ class OWBindingData(OWWidget):
             1e6,
             step=1.0,
             decimals=3,
-            label=f"Measurement wavelength ({self._unit_symbol(WAVELENGTH_UNIT)})",
+            label="Measurement wavelength",
             orientation="horizontal",
             callback=self._wavelength_control_changed,
         )
@@ -162,8 +166,8 @@ class OWBindingData(OWWidget):
         box = gui.vBox(self.mainArea)
         gui.widgetLabel(box, "Corrected CD spectra and selected wavelength")
         self.plot = pg.PlotWidget(box)
-        self.plot.setLabel("bottom", "Wavelength", units=self._unit_symbol(WAVELENGTH_UNIT))
-        self.plot.setLabel("left", "CD", units=self._unit_symbol(CD_SIGNAL_UNIT))
+        self.plot.setLabel("bottom", "Wavelength")
+        self.plot.setLabel("left", "CD")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         box.layout().addWidget(self.plot)
 
@@ -173,7 +177,7 @@ class OWBindingData(OWWidget):
             movable=True,
             pen=pg.mkPen("#d62728", width=2),
             hoverPen=pg.mkPen("#ff7f0e", width=3),
-            label=f"{{value:.3f}} {self._unit_symbol(WAVELENGTH_UNIT)}",
+            label="{value:.3f}",
         )
         self.line.sigPositionChangeFinished.connect(self._line_changed)
         self.plot.addItem(self.line)
@@ -278,26 +282,27 @@ class OWBindingData(OWWidget):
             ("ratio", "normalised_molar_ratio", "molar_ratio"),
         )
 
-    def _metadata_float(self, name: str) -> float | None:
+    def _metadata_quantity(self, name: str):
         if self.spectra is None or name not in self.spectra.attributes:
             self.Error.missing_conversion_metadata(name)
             return None
         try:
-            value = float(self.spectra.attributes[name])
-        except (TypeError, ValueError):
+            return table_quantity(self.spectra, name)
+        except ValueError:
             self.Error.invalid_conversion_metadata(name)
             return None
-        if not np.isfinite(value) or value <= 0:
-            self.Error.invalid_conversion_metadata(name)
-            return None
-        return value
 
     def _refresh_plot(self) -> None:
         self.plot.clear()
-        wavelength_unit, cd_unit = self._axis_units()
-        self.plot.setLabel("bottom", "Wavelength", units=wavelength_unit)
-        self.plot.setLabel("left", "CD", units=cd_unit)
-        self.line.label.setFormat(f"{{value:.3f}} {wavelength_unit}")
+        wavelength_symbol = unit_symbol(self._wavelength_unit())
+        self.plot.setLabel("bottom", "Wavelength", units=wavelength_symbol)
+        self.plot.setLabel("left", "CD", units=unit_symbol(self._plotted_cd_unit()))
+        self.line.label.setFormat(
+            "{value:.3f}" + (f" {wavelength_symbol}" if wavelength_symbol else "")
+        )
+        self.wavelength_spin.setSuffix(
+            f" {wavelength_symbol}" if wavelength_symbol else ""
+        )
         if self.spectra is not None and self._wavelengths is not None:
             indexed_variables = self._matching(self.corrected_series)
             variable_indices = [i[0] for i in indexed_variables]
@@ -356,56 +361,79 @@ class OWBindingData(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        concentration_m = self._metadata_float(
-            "solution_a_concentration_M"
-        )
-        pathlength_cm = self._metadata_float("pathlength_cm")
-        if concentration_m is None or pathlength_cm is None:
+        concentration = self._metadata_quantity(CONCENTRATION_KEY)
+        pathlength = self._metadata_quantity(PATHLENGTH_KEY)
+        if concentration is None or pathlength is None:
             self.Outputs.data.send(None)
             return
 
-        # do some sorting out of the idx, name pairs that we get from the _variables_matching function
-        corrected_indices = [i[0] for i in indexed_corrected]
-        corrected_names = [i[1] for i in indexed_corrected]
-        solution_a_idx = reference[0]
-        solution_a_name = reference[1]
-        variables_idx = [solution_a_idx, *corrected_indices]
-        sample_names = [solution_a_name, *corrected_names]
+        variables_idx = [reference[0], *(i[0] for i in indexed_corrected)]
+        sample_names = [reference[1], *(i[1] for i in indexed_corrected)]
 
-        cd_mdeg = np.asarray(
-            [
-                self.spectra[variable][row]
-                for variable in variables_idx
-            ],
-            dtype=float,
-        )
+        # Each spectrum keeps the unit it was given on input; bring them all
+        # to the unit of the first row before taking differences.
+        row_units = spectrum_units(self.spectra)
+        units = [row_units[index] for index in variables_idx]
+        if not all(units):
+            self.Error.incompatible_units(
+                "The spectra table has no spectrum unit "
+                "(attribute 'spectrum_unit' or 'Unit' meta)."
+            )
+            self.Outputs.data.send(None)
+            return
+        cd_unit = units[0]
+        try:
+            cd = Q_(
+                np.asarray(
+                    [
+                        Q_(float(self.spectra.X[index, row]), unit)
+                        .to(cd_unit).magnitude
+                        for index, unit in zip(variables_idx, units)
+                    ]
+                ),
+                cd_unit,
+            )
+            # Absorbance difference needs an angular CD signal, not delta
+            # epsilon.
+            cd.to(MDEG_PER_DELTA_A.units)
+        except TypeError as exc:
+            self.Error.incompatible_units(
+                f"The selected series must be in CD units "
+                f"(e.g. millidegree): {exc}"
+            )
+            self.Outputs.data.send(None)
+            return
+
         titration_point = np.concatenate(
             ([0.0], np.asarray(ratios, dtype=float))
         )
 
-        change_mdeg = np.zeros_like(cd_mdeg)
+        change = np.zeros_like(cd.magnitude) * cd.units
         if self.absolute_change:
-            change_mdeg[1:] = np.abs(cd_mdeg[1:] - cd_mdeg[0])
+            change[1:] = np.abs(cd[1:] - cd[0])
         else:
-            change_mdeg[1:] = cd_mdeg[1:] - cd_mdeg[0]
+            change[1:] = cd[1:] - cd[0]
 
-        delta_a = change_mdeg / MDEG_PER_DELTA_A
-        delta_epsilon = delta_a / (concentration_m * pathlength_cm)
+        delta_a = (change.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to(
+            "dimensionless"
+        )
+        delta_epsilon = (delta_a / (concentration * pathlength)).to(
+            DELTA_EPSILON_UNIT
+        )
         binding_stoichiometry = titration_point / (titration_point + 1.0)
 
         # CD Apps Origin data column 1:
-        # concentration [B] (M) = titration point * host concentration (M).
-        concentration_b_m = titration_point * concentration_m
+        # concentration [B] = titration point * host concentration.
+        concentration_b = (titration_point * concentration).to(CONCENTRATION_UNIT)
 
-        # cd_unit = self.spectra.attributes.get("unit", CD_SIGNAL_UNIT)
         cd_variable = ContinuousVariable("CD")
-        # cd_variable.attributes["unit"] = cd_unit
+        cd_variable.attributes["unit"] = unit_string(cd_unit)
         change_variable = ContinuousVariable("Change in CD")
-        # change_variable.attributes["unit"] = cd_unit
+        change_variable.attributes["unit"] = unit_string(cd_unit)
         delta_epsilon_variable = ContinuousVariable("Delta Epsilon")
-        # delta_epsilon_variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
+        delta_epsilon_variable.attributes["unit"] = unit_string(DELTA_EPSILON_UNIT)
         concentration_b_variable = ContinuousVariable("Conc [B]")
-        # concentration_b_variable.attributes["unit"] = str(Q_(1, CONCENTRATION_UNIT).units)
+        concentration_b_variable.attributes["unit"] = unit_string(CONCENTRATION_UNIT)
         domain = Domain(
             [
                 ContinuousVariable("Titration point"),
@@ -418,37 +446,42 @@ class OWBindingData(OWWidget):
             ],
             metas=[StringVariable("Sample")],
         )
-        
+
         output = Table.from_numpy(
             domain,
             np.column_stack(
                 (
                     titration_point,
-                    cd_mdeg,
-                    change_mdeg,
-                    delta_a,
-                    delta_epsilon,
+                    cd.magnitude,
+                    change.magnitude,
+                    delta_a.magnitude,
+                    delta_epsilon.magnitude,
                     binding_stoichiometry,
-                    concentration_b_m,
+                    concentration_b.magnitude,
                 )
             ),
             metas=np.asarray(sample_names, dtype=object).reshape(-1, 1),
         )
-        output.name = f"Binding and Origin data at {self.wavelength:g} nm"
+        wavelength_unit = self._wavelength_unit()
+        measurement = Q_(self.wavelength, wavelength_unit or "dimensionless")
+        output.name = (
+            f"Binding and Origin data at {self.wavelength:g}"
+            + (f" {unit_symbol(wavelength_unit)}" if wavelength_unit else "")
+        )
         output.attributes.update(
             {
-                "measurement_wavelength_nm": self.wavelength,
+                MEASUREMENT_WAVELENGTH_KEY: quantity_string(measurement),
                 "corrected_series": self.corrected_series,
                 "solution_a_series": self.solution_a_series,
                 "absolute_change": self.absolute_change,
-                "solution_a_concentration_M": concentration_m,
-                "pathlength_cm": pathlength_cm,
+                CONCENTRATION_KEY: quantity_string(concentration),
+                PATHLENGTH_KEY: quantity_string(pathlength),
                 "delta_epsilon_calculation": (
                     "Delta_A / "
-                    "(solution_a_concentration_M * pathlength_cm)"
+                    f"({CONCENTRATION_KEY} * {PATHLENGTH_KEY})"
                 ),
                 "origin_concentration_b_calculation": (
-                    "Titration_point * solution_a_concentration_M"
+                    f"Titration_point * {CONCENTRATION_KEY}"
                 ),
             }
         )
