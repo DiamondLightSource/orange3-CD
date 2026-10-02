@@ -95,6 +95,9 @@ class OWDeltaEpsilon(OWWidget):
         missing_wavelength = Msg(
             "Input does not contain a Wavelength meta attribute."
         )
+        invalid_wavelength = Msg(
+            "Input attribute names are not all valid wavelengths."
+        )
         no_series_names = Msg(
             "Input features do not use the expected 'sample | series' names."
         )
@@ -272,7 +275,7 @@ class OWDeltaEpsilon(OWWidget):
 
         try:
             variable = [i for i in self.data.domain.metas if i.name == "Wavelength"][0]
-        except KeyError:
+        except IndexError:
             self.Error.missing_wavelength()
             return None
 
@@ -282,7 +285,13 @@ class OWDeltaEpsilon(OWWidget):
             self.Error.missing_wavelength()
             return None
 
-        wavelength = np.array([float(var.name) for var in self.data.domain.attributes])
+        try:
+            wavelength = np.array(
+                [float(var.name) for var in self.data.domain.attributes]
+            )
+        except ValueError:
+            self.Error.invalid_wavelength()
+            return None
         if np.isnan(wavelength).any():
             self.Error.invalid_wavelength()
             return None
@@ -309,7 +318,7 @@ class OWDeltaEpsilon(OWWidget):
             variable for variable in indexed_candidates
             if variable[1].startswith("Background | ")
         ]
-        return background[0] if background else (indexed_candidates[0][0] if indexed_candidates else None)
+        return background[0] if background else (indexed_candidates[0] if indexed_candidates else None)
 
     @staticmethod
     def _delta_name(variable: ContinuousVariable) -> str:

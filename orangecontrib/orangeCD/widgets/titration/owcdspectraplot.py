@@ -87,7 +87,7 @@ class OWCDSpectraPlot(OWWidget):
     class Error(OWWidget.Error):
         missing_wavelength = Msg("The input table does not contain a Wavelength meta attribute.")
         no_numeric_spectra = Msg("The input table contains no continuous spectra.")
-        invalid_wavelength = Msg("The Wavelength meta contains missing values.")
+        invalid_wavelength = Msg("The input attribute names are not all valid wavelengths.")
 
     def __init__(self) -> None:
         super().__init__()
@@ -99,6 +99,8 @@ class OWCDSpectraPlot(OWWidget):
         )
 
         self.data: Table | None = None
+        # Maps list-box position -> row index in self.data
+        self._row_map: list[int] = []
         self._build_controls()
         self._build_plot()
         
@@ -272,8 +274,9 @@ class OWCDSpectraPlot(OWWidget):
     def _populate_spectra(self) -> None:
         matched_vars = self._matching_variables()
 
+        self._row_map = [i[0] for i in matched_vars]
         self.spectra_names = [i[1] for i in matched_vars]
-        self.selected_spectra = list(i[0] for i in matched_vars)
+        self.selected_spectra = list(range(len(matched_vars)))
 
     def _select_all_spectra(self) -> None:
         self.selected_spectra = list(range(len(self.spectra_names)))
@@ -317,7 +320,7 @@ class OWCDSpectraPlot(OWWidget):
 
         try:
             variable = self.data.domain.metas[0]
-        except KeyError:
+        except IndexError:
             self.Error.missing_wavelength()
             return None
 
@@ -327,7 +330,13 @@ class OWCDSpectraPlot(OWWidget):
             self.Error.missing_wavelength()
             return None
 
-        wavelength = np.array([float(var.name) for var in self.data.domain.attributes])
+        try:
+            wavelength = np.array(
+                [float(var.name) for var in self.data.domain.attributes]
+            )
+        except ValueError:
+            self.Error.invalid_wavelength()
+            return None
         if np.isnan(wavelength).any():
             self.Error.invalid_wavelength()
             return None
@@ -348,19 +357,22 @@ class OWCDSpectraPlot(OWWidget):
         if wavelength is None:
             return
 
-        variables = self.spectra_names
-        selected_variables = self.selected_spectra
-        if not selected_variables:
-            if not variables:
+        selected = [
+            index for index in self.selected_spectra
+            if 0 <= index < len(self._row_map)
+        ]
+        if not selected:
+            if not self.spectra_names:
                 self.Error.no_numeric_spectra()
             return
 
         colours = colours_from_scale(
             self.colour_scale,
-            len(selected_variables),
+            len(selected),
         )
-        for colour, variable, var_name in zip(colours, selected_variables, variables):
-            intensity = self.data[variable].x
+        for colour, index in zip(colours, selected):
+            var_name = self.spectra_names[index]
+            intensity = self.data.X[self._row_map[index]]
             valid = np.isfinite(wavelength) & np.isfinite(intensity)
             curve = self.plot_item.plot(
                 wavelength[valid],

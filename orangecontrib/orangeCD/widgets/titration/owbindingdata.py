@@ -13,8 +13,8 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
 
-DEFAULT_CORRECTED_SERIES = "plus_sol_A_delta_epsilon"
-DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed_delta_epsilon"
+DEFAULT_CORRECTED_SERIES = "plus_sol_A"
+DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
 MDEG_PER_DELTA_A = 32980.0
 WAVELENGTH_UNIT = "nanometer"
 CD_SIGNAL_UNIT = "millidegree"
@@ -68,6 +68,9 @@ class OWBindingData(OWWidget):
 
     class Error(OWWidget.Error):
         missing_wavelength = Msg("Input has no continuous Wavelength meta.")
+        invalid_wavelength = Msg(
+            "Input attribute names are not all valid wavelengths."
+        )
         missing_solution_a = Msg(
             "No Solution A CD feature matching '{}' was found."
         )
@@ -226,7 +229,7 @@ class OWBindingData(OWWidget):
             return
         try:
             variable = [i for i in self.spectra.domain.metas if i.name == "Wavelength"][0]
-        except KeyError:
+        except IndexError:
             self.Error.missing_wavelength()
             return None
 
@@ -236,7 +239,13 @@ class OWBindingData(OWWidget):
             self.Error.missing_wavelength()
             return None
 
-        wavelength = np.array([float(var.name) for var in self.spectra.domain.attributes])
+        try:
+            wavelength = np.array(
+                [float(var.name) for var in self.spectra.domain.attributes]
+            )
+        except ValueError:
+            self.Error.invalid_wavelength()
+            return None
 
         if np.isnan(wavelength).any():
             self.Error.invalid_wavelength()
