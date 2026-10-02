@@ -96,7 +96,7 @@ class OWCDSpectraPlot(OWWidget):
         data = Input("Processed CD Data", Table)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg("The input table does not contain a Wavelength meta attribute.")
+        missing_wavelength = Msg("The input table does not contain a 'Spectrum' string meta naming the rows.")
         no_numeric_spectra = Msg("The input table contains no continuous spectra.")
         invalid_wavelength = Msg("The input attribute names are not all valid wavelengths.")
 

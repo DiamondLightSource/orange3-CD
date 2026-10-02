@@ -77,7 +77,7 @@ class OWBindingData(OWWidget):
     absolute_change = Setting(True)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg("Input has no continuous Wavelength meta.")
+        missing_wavelength = Msg("Input has no 'Spectrum' string meta naming the rows.")
         invalid_wavelength = Msg(
             "Input attribute names are not all valid wavelengths."
         )
@@ -312,9 +312,7 @@ class OWBindingData(OWWidget):
             for index, variable in enumerate(variable_indices):
                 self.plot.plot(
                     self._wavelengths,
-                    np.asarray(
-                        self.spectra[variable].x, dtype=float
-                    ),
+                    np.asarray(self.spectra.X[variable], dtype=float),
                     pen=pg.mkPen(
                         pg.intColor(index, max(len(variable_indices), 1)),
                         width=1.2,

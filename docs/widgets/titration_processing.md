@@ -67,9 +67,13 @@ After processing the reference files, each data file is processed by the followi
 The processed output generates a data table that can best be viewed by the Data Table widget, or by the [CD Spectra Plot](./cd_spectra_plot.md) widget.
 
 #### Data Table output
-Viewing the output table in the Data Table widget, the columns are named according to both the input file name or designation, and the processing stage. In general:
+The output follows the layout used by the Quasar spectroscopy widgets: **each row is one spectrum and each column is one wavelength**. The column names are the wavelengths themselves, in ascending order. The row label is held in the `Spectrum` meta column, named according to both the input file name or designation and the processing stage.
 
-|Column name| Description |
+The units chosen in the `Units of the data files` box are stored on the table as the `wavelength_unit` and `spectrum_unit` attributes and are used by all downstream widgets.
+
+In general the `Spectrum` values are:
+
+|Spectrum| Description |
 |-|-|
 |Background files|
 |`Background \| sol_A`| The raw spectrum of Solution A used as an input|

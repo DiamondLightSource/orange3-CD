@@ -2,7 +2,7 @@
 
 A processed spectra table has one row per spectrum and one continuous
 attribute per wavelength, the attribute name being the wavelength itself.
-Each row is labelled by a string meta called ``Wavelength`` holding names of
+Each row is labelled by a string meta called ``Spectrum`` holding names of
 the form ``sample | processing_stage``.
 """
 
@@ -14,7 +14,7 @@ from pint import Quantity
 
 from . import Q_
 
-WAVELENGTH_META = "Wavelength"
+SPECTRUM_META = "Spectrum"
 UNIT_META = "Unit"
 BACKGROUND_PREFIX = "Background | "
 
@@ -54,11 +54,11 @@ def split_series_name(name: str) -> tuple[str, str] | None:
 def spectrum_names(table: Table) -> list[str]:
     """Return the name of every row, in row order."""
     for index, variable in enumerate(table.domain.metas):
-        if variable.name == WAVELENGTH_META and isinstance(
+        if variable.name == SPECTRUM_META and isinstance(
             variable, StringVariable
         ):
             return [str(value) for value in table.metas[:, index]]
-    raise MissingWavelength(WAVELENGTH_META)
+    raise MissingWavelength(SPECTRUM_META)
 
 
 def wavelengths(table: Table) -> np.ndarray:

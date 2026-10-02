@@ -15,6 +15,7 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from .utils import (
+    SPECTRUM_META,
     SPECTRUM_UNIT_KEY,
     WAVELENGTH_UNIT_KEY,
     unit_string,
@@ -134,7 +135,8 @@ def dataframe_to_orange_table(
         " | ".join(map(str, col)) if isinstance(col, tuple) else str(col)
         for col in output.columns
     ]
-    output.index.name = "Wavelength"
+    # Ascending wavelength axis, whatever order the instrument wrote.
+    output = output.sort_index()
     attributes = output.index.values
 
     def wavelength_variable(name):
@@ -143,13 +145,12 @@ def dataframe_to_orange_table(
 
     domain = Domain(
         [wavelength_variable(str(col)) for col in attributes],
-        metas = [StringVariable("Wavelength")],
+        metas=[StringVariable(SPECTRUM_META)],
         )
 
     table = Table.from_numpy(
         domain,
-        np.array([output.loc[i] for i in attributes]).T,
-        # metas=np.array([[i] for i in output.columns], dtype=str),
+        output.to_numpy(dtype=float).T,
         metas = np.array(output.columns, dtype=object)[:, np.newaxis],
     )
 

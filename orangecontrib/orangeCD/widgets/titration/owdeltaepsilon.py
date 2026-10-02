@@ -20,7 +20,7 @@ from .utils import (
     PATHLENGTH_KEY,
     SPECTRUM_UNIT_KEY,
     UNIT_META,
-    WAVELENGTH_META,
+    SPECTRUM_META,
     InvalidWavelength,
     SpectraError,
     matching_spectra,
@@ -105,7 +105,7 @@ class OWDeltaEpsilon(OWWidget):
 
     class Error(OWWidget.Error):
         missing_wavelength = Msg(
-            "Input does not contain a Wavelength meta attribute."
+            "Input does not contain a 'Spectrum' string meta naming the rows."
         )
         invalid_wavelength = Msg(
             "Input attribute names are not all valid wavelengths."
@@ -407,7 +407,7 @@ class OWDeltaEpsilon(OWWidget):
         output_domain = Domain(
             wavelength.attributes,
             metas=[
-                next(m for m in wavelength.metas if m.name == WAVELENGTH_META),
+                next(m for m in wavelength.metas if m.name == SPECTRUM_META),
                 StringVariable(UNIT_META),
             ],
         )
