@@ -35,8 +35,9 @@ from .utils import (
     wavelengths as spectra_wavelengths,
 )
 
-DEFAULT_CORRECTED_SERIES = "plus_sol_A"
-DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
+# Preferred series, most-corrected first; used when nothing valid is saved.
+DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
+DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
 # Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
 
@@ -72,8 +73,8 @@ class OWBindingData(OWWidget):
         data = Output("Binding Data", Table)
 
     wavelength = Setting(400.0)
-    corrected_series = Setting(DEFAULT_CORRECTED_SERIES)
-    solution_a_series = Setting(DEFAULT_SOLUTION_A_SERIES)
+    data_series = Setting("")
+    solution_a_series = Setting("")
     absolute_change = Setting(True)
 
     class Error(OWWidget.Error):
@@ -84,8 +85,8 @@ class OWBindingData(OWWidget):
         missing_solution_a = Msg(
             "No Solution A CD feature matching '{}' was found."
         )
-        missing_corrected = Msg(
-            "No corrected CD features matching '{}' were found."
+        missing_data = Msg(
+            "No titration data features matching '{}' were found."
         )
         missing_ratios = Msg("Titration input has no ratio column.")
         missing_conversion_metadata = Msg(
@@ -100,6 +101,7 @@ class OWBindingData(OWWidget):
         self.spectra: Table | None = None
         self.titration: Table | None = None
         self._wavelengths: np.ndarray | None = None
+        self._wavelength_error = None
         self._moving_line = False
         self._updating_series = False
         self._build_controls()
@@ -115,7 +117,7 @@ class OWBindingData(OWWidget):
         if self.spectra is None:
             return None
         row_units = spectrum_units(self.spectra)
-        rows = [row for row, _ in self._matching(self.corrected_series)]
+        rows = [row for row, _ in self._matching(self.data_series)]
         reference = self._reference()
         if reference is not None:
             rows.append(reference[0])
@@ -135,15 +137,15 @@ class OWBindingData(OWWidget):
             orientation="horizontal",
             callback=self._wavelength_control_changed,
         )
-        self.corrected_combo = gui.comboBox(
-            box, self, "corrected_series",
-            label="Corrected CD series", items=[],
+        self.data_combo = gui.comboBox(
+            box, self, "data_series",
+            label="Titration data series", items=[],
             sendSelectedValue=True, valueType=str,
             orientation="horizontal", callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
             box, self, "solution_a_series",
-            label="Zeroed Solution A series", items=[],
+            label="Solution A series", items=[],
             sendSelectedValue=True, valueType=str,
             orientation="horizontal", callback=self._series_changed,
         )
@@ -164,7 +166,7 @@ class OWBindingData(OWWidget):
 
     def _build_plot(self) -> None:
         box = gui.vBox(self.mainArea)
-        gui.widgetLabel(box, "Corrected CD spectra and selected wavelength")
+        gui.widgetLabel(box, "CD spectra and selected wavelength")
         self.plot = pg.PlotWidget(box)
         self.plot.setLabel("bottom", "Wavelength")
         self.plot.setLabel("left", "CD")
@@ -198,11 +200,11 @@ class OWBindingData(OWWidget):
                 stages = spectra_stages(self.spectra)
             except SpectraError:
                 pass
-        corrected = self._preferred(stages, self.corrected_series, DEFAULT_CORRECTED_SERIES)
+        data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
         solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
         self._updating_series = True
         for combo, selected in (
-            (self.corrected_combo, corrected),
+            (self.data_combo, data_stage),
             (self.solution_a_combo, solution_a),
         ):
             combo.blockSignals(True)
@@ -211,15 +213,18 @@ class OWBindingData(OWWidget):
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
-        self.corrected_series, self.solution_a_series = corrected, solution_a
+        self.data_series, self.solution_a_series = data_stage, solution_a
         self._updating_series = False
 
     @staticmethod
-    def _preferred(values: list[str], current: str, default: str) -> str:
-        if default in values:
-            return default
+    def _preferred(
+        values: list[str], current: str, defaults: tuple[str, ...]
+    ) -> str:
         if current in values:
             return current
+        for default in defaults:
+            if default in values:
+                return default
         return values[0] if values else ""
 
     @Inputs.titration
@@ -229,14 +234,15 @@ class OWBindingData(OWWidget):
 
     def _load_wavelengths(self) -> None:
         self._wavelengths = None
+        self._wavelength_error = None
         if self.spectra is None:
             return
         try:
             self._wavelengths = spectra_wavelengths(self.spectra)
         except InvalidWavelength:
-            self.Error.invalid_wavelength()
+            self._wavelength_error = self.Error.invalid_wavelength
         except SpectraError:
-            self.Error.missing_wavelength()
+            self._wavelength_error = self.Error.missing_wavelength
 
     def _snap(self, requested: float | None = None) -> int | None:
         if self._wavelengths is None:
@@ -304,8 +310,8 @@ class OWBindingData(OWWidget):
             f" {wavelength_symbol}" if wavelength_symbol else ""
         )
         if self.spectra is not None and self._wavelengths is not None:
-            indexed_variables = self._matching(self.corrected_series)
-            variable_indices = [i[0] for i in indexed_variables]
+            indexed_rows = self._matching(self.data_series)
+            variable_indices = [i[0] for i in indexed_rows]
             reference = self._reference()
             if reference is not None:
                 variable_indices.insert(0, reference[0])
@@ -324,13 +330,16 @@ class OWBindingData(OWWidget):
 
     def commit(self) -> None:
         self.Error.clear()
+        if self._wavelength_error is not None:
+            self._wavelength_error()
+            self.Outputs.data.send(None)
+            return
         if self.spectra is None or self.titration is None:
             self.Outputs.data.send(None)
             return
 
         row = self._snap()
         if row is None:
-            self.Error.missing_wavelength()
             self.Outputs.data.send(None)
             return
 
@@ -340,9 +349,9 @@ class OWBindingData(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        indexed_corrected = self._matching(self.corrected_series)
-        if not indexed_corrected:
-            self.Error.missing_corrected(self.corrected_series)
+        indexed_data = self._matching(self.data_series)
+        if not indexed_data:
+            self.Error.missing_data(self.data_series)
             self.Outputs.data.send(None)
             return
 
@@ -351,10 +360,10 @@ class OWBindingData(OWWidget):
             self.Error.missing_ratios()
             self.Outputs.data.send(None)
             return
-        if len(ratios) != len(indexed_corrected):
+        if len(ratios) != len(indexed_data):
             self.Error.mismatched_points(
                 f"There are {len(ratios)} titration ratios but "
-                f"{len(indexed_corrected)} spectra"
+                f"{len(indexed_data)} spectra"
             )
             self.Outputs.data.send(None)
             return
@@ -365,8 +374,8 @@ class OWBindingData(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        variables_idx = [reference[0], *(i[0] for i in indexed_corrected)]
-        sample_names = [reference[1], *(i[1] for i in indexed_corrected)]
+        variables_idx = [reference[0], *(i[0] for i in indexed_data)]
+        sample_names = [reference[1], *(i[1] for i in indexed_data)]
 
         # Each spectrum keeps the unit it was given on input; bring them all
         # to the unit of the first row before taking differences.
@@ -469,7 +478,7 @@ class OWBindingData(OWWidget):
         output.attributes.update(
             {
                 MEASUREMENT_WAVELENGTH_KEY: quantity_string(measurement),
-                "corrected_series": self.corrected_series,
+                "data_series": self.data_series,
                 "solution_a_series": self.solution_a_series,
                 "absolute_change": self.absolute_change,
                 CONCENTRATION_KEY: quantity_string(concentration),

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Convert selected corrected CD spectra to mean-residue delta epsilon."""
+"""Convert selected CD spectra to mean-residue delta epsilon."""
 
 from __future__ import annotations
 
 import numpy as np
 from pint import Quantity
 
-from Orange.data import Domain, StringVariable, Table
+from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -19,10 +19,9 @@ from .utils import (
     MDEG_PER_DELTA_A,
     PATHLENGTH_KEY,
     SPECTRUM_UNIT_KEY,
-    UNIT_META,
-    SPECTRUM_META,
     InvalidWavelength,
     SpectraError,
+    build_spectra_table,
     matching_spectra,
     quantity_string,
     reference_spectrum,
@@ -36,8 +35,9 @@ from .utils import (
 PATHLENGTH_UNIT = "centimeter"
 MOLECULAR_WEIGHT_UNIT = "gram / mole"
 CONCENTRATION_COLUMN = "working_concentration_a"
-DEFAULT_CORRECTED_SERIES = "plus_sol_A"
-DEFAULT_SOLUTION_A_SERIES = "sol_A_buffer_subtracted_zeroed"
+# Preferred series, most-corrected first; used when nothing valid is saved.
+DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
+DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
 DELTA_EPSILON_SUFFIX = "delta_epsilon"
 DEFAULT_PATHLENGTH_CM = 1.0
 DEFAULT_MEAN_RESIDUE_MW = 113.0
@@ -51,7 +51,7 @@ def calculate_delta_epsilon(
     mean_residue_molecular_weight: Quantity,
     solution_a_molecular_weight: Quantity,
 ) -> Quantity:
-    """Convert corrected CD to mean-residue delta epsilon.
+    """Convert CD to mean-residue delta epsilon.
 
     Every argument carries its own unit; the result is in
     ``DELTA_EPSILON_UNIT``. Raises ``ValueError`` for non-positive
@@ -81,7 +81,7 @@ def calculate_delta_epsilon(
 class OWDeltaEpsilon(OWWidget):
     name = "Delta Epsilon"
     description = (
-        "Retain selected corrected CD spectra and add converted mean-residue "
+        "Retain selected CD spectra and add converted mean-residue "
         "delta epsilon spectra."
     )
     icon = "icons/DeltaEpsilon.svg"
@@ -90,7 +90,7 @@ class OWDeltaEpsilon(OWWidget):
     resizing_enabled = False
 
     class Inputs:
-        data = Input("Processed CD Data", Table)
+        data = Input("CD Data", Table)
         titration = Input("Titration Table", Table)
 
     class Outputs:
@@ -99,8 +99,8 @@ class OWDeltaEpsilon(OWWidget):
     pathlength_cm = Setting(DEFAULT_PATHLENGTH_CM)
     mean_residue_molecular_weight = Setting(DEFAULT_MEAN_RESIDUE_MW)
     solution_a_molecular_weight = Setting(DEFAULT_SOLUTION_A_MW)
-    corrected_series = Setting(DEFAULT_CORRECTED_SERIES)
-    solution_a_series = Setting(DEFAULT_SOLUTION_A_SERIES)
+    data_series = Setting("")
+    solution_a_series = Setting("")
     auto_commit = Setting(True)
 
     class Error(OWWidget.Error):
@@ -113,8 +113,8 @@ class OWDeltaEpsilon(OWWidget):
         no_series_names = Msg(
             "Input features do not use the expected 'sample | series' names."
         )
-        no_corrected_series = Msg(
-            "No features match the selected corrected series '{}'."
+        no_data_series = Msg(
+            "No features match the selected titration data series '{}'."
         )
         no_solution_a_series = Msg(
             "No feature matches the selected Solution A series '{}'."
@@ -140,10 +140,10 @@ class OWDeltaEpsilon(OWWidget):
         self.solution_a_molecular_weight = self._positive_float(
             self.solution_a_molecular_weight, DEFAULT_SOLUTION_A_MW
         )
-        if not isinstance(self.corrected_series, str):
-            self.corrected_series = DEFAULT_CORRECTED_SERIES
+        if not isinstance(self.data_series, str):
+            self.data_series = ""
         if not isinstance(self.solution_a_series, str):
-            self.solution_a_series = DEFAULT_SOLUTION_A_SERIES
+            self.solution_a_series = ""
 
         self.data: Table | None = None
         self.titration_data: Table | None = None
@@ -161,15 +161,15 @@ class OWDeltaEpsilon(OWWidget):
 
     def _build_controls(self) -> None:
         series_box = gui.widgetBox(self.controlArea, "Data series")
-        self.corrected_combo = gui.comboBox(
-            series_box, self, "corrected_series",
-            label="Corrected titration series", items=[],
+        self.data_combo = gui.comboBox(
+            series_box, self, "data_series",
+            label="Titration data series", items=[],
             sendSelectedValue=True, valueType=str,
             orientation="horizontal", callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
             series_box, self, "solution_a_series",
-            label="Zeroed Solution A series", items=[],
+            label="Solution A series", items=[],
             sendSelectedValue=True, valueType=str,
             orientation="horizontal", callback=self._series_changed,
         )
@@ -253,11 +253,11 @@ class OWDeltaEpsilon(OWWidget):
             except SpectraError:
                 pass
         self.available_series = stages
-        corrected = self._preferred(stages, self.corrected_series, DEFAULT_CORRECTED_SERIES)
+        data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
         solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
         self._updating_series = True
         for combo, selected in (
-            (self.corrected_combo, corrected),
+            (self.data_combo, data_stage),
             (self.solution_a_combo, solution_a),
         ):
             combo.blockSignals(True)
@@ -266,34 +266,37 @@ class OWDeltaEpsilon(OWWidget):
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
-        self.corrected_series, self.solution_a_series = corrected, solution_a
+        self.data_series, self.solution_a_series = data_stage, solution_a
         self._updating_series = False
 
     @staticmethod
-    def _preferred(values: list[str], current: str, default: str) -> str:
-        if default in values:
-            return default
+    def _preferred(
+        values: list[str], current: str, defaults: tuple[str, ...]
+    ) -> str:
         if current in values:
             return current
+        for default in defaults:
+            if default in values:
+                return default
         return values[0] if values else ""
 
     def _series_changed(self) -> None:
         if not self._updating_series:
             self.commit.deferred()
 
-    def _wavelength_domain(self) -> Domain | None:
-        """Return the input domain if it has a valid wavelength axis."""
+    def _valid_wavelengths(self) -> bool:
+        """Check the input has a readable wavelength axis, else show why."""
         if self.data is None:
-            return None
+            return False
         try:
             spectra_wavelengths(self.data)
         except InvalidWavelength:
             self.Error.invalid_wavelength()
-            return None
+            return False
         except SpectraError:
             self.Error.missing_wavelength()
-            return None
-        return self.data.domain
+            return False
+        return True
 
     def _variables_matching(self, stage: str) -> list[tuple[int, str]]:
         if self.data is None or not stage:
@@ -342,8 +345,7 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        wavelength = self._wavelength_domain()
-        if wavelength is None:
+        if not self._valid_wavelengths():
             self.Outputs.data.send(None)
             return
         if not self.available_series:
@@ -351,9 +353,9 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        indexed_corrected = self._variables_matching(self.corrected_series)
-        if not indexed_corrected:
-            self.Error.no_corrected_series(self.corrected_series)
+        indexed_data = self._variables_matching(self.data_series)
+        if not indexed_data:
+            self.Error.no_data_series(self.data_series)
             self.Outputs.data.send(None)
             return
         solution_a = self._solution_a_variable()
@@ -367,7 +369,7 @@ class OWDeltaEpsilon(OWWidget):
             return
 
         row_units = spectrum_units(self.data)
-        raw_rows = [solution_a, *indexed_corrected]
+        raw_rows = [solution_a, *indexed_data]
         raw_variables_idx = [row for row, _ in raw_rows]
         raw_variable_names = [name for _, name in raw_rows]
         raw_units = [row_units[row] for row in raw_variables_idx]
@@ -404,30 +406,18 @@ class OWDeltaEpsilon(OWWidget):
 
         delta_unit = unit_string(DELTA_EPSILON_UNIT)
         delta_names = [self._delta_name(name) for name in raw_variable_names]
-        output_domain = Domain(
-            wavelength.attributes,
-            metas=[
-                next(m for m in wavelength.metas if m.name == SPECTRUM_META),
-                StringVariable(UNIT_META),
-            ],
-        )
-        output = Table.from_numpy(
-            output_domain,
+        output = build_spectra_table(
+            self.data,
             np.vstack((raw_values, converted)),
-            metas=np.column_stack((
-                np.asarray([*raw_variable_names, *delta_names], dtype=object),
-                np.asarray(
-                    [*raw_units, *[delta_unit] * len(delta_names)], dtype=object
-                ),
-            )),
-            attributes=dict(self.data.attributes),
+            [*raw_variable_names, *delta_names],
+            [*raw_units, *[delta_unit] * len(delta_names)],
         )
         output.name = (
             f"{self.data.name} - CD and delta epsilon"
             if self.data.name else "CD and delta epsilon"
         )
         output.attributes.update({
-            "corrected_series": self.corrected_series,
+            "data_series": self.data_series,
             "solution_a_series": self.solution_a_series,
             "delta_epsilon_suffix": DELTA_EPSILON_SUFFIX,
             CONCENTRATION_KEY: quantity_string(concentration),

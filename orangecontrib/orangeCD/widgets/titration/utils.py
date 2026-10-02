@@ -1,6 +1,6 @@
 """Helpers for the spectra-as-rows table layout shared by the CD widgets.
 
-A processed spectra table has one row per spectrum and one continuous
+A spectra table has one row per spectrum and one continuous
 attribute per wavelength, the attribute name being the wavelength itself.
 Each row is labelled by a string meta called ``Spectrum`` holding names of
 the form ``sample | processing_stage``.
@@ -9,7 +9,7 @@ the form ``sample | processing_stage``.
 from __future__ import annotations
 
 import numpy as np
-from Orange.data import StringVariable, Table
+from Orange.data import Domain, StringVariable, Table
 from pint import Quantity
 
 from . import Q_
@@ -163,3 +163,35 @@ def shared_unit(units) -> str | None:
     """Return the single unit common to all of ``units``, else None."""
     unique = set(units)
     return unique.pop() if len(unique) == 1 else None
+
+
+def build_spectra_table(
+    template: Table,
+    X: np.ndarray,
+    names: list[str],
+    units: list[str],
+    attributes: dict | None = None,
+) -> Table:
+    """Create a spectra table on the wavelength axis of ``template``.
+
+    ``X`` holds one spectrum per row; ``names`` and ``units`` label each row
+    through the ``Spectrum`` and ``Unit`` metas.
+    """
+    spectrum_variable = next(
+        variable
+        for variable in template.domain.metas
+        if variable.name == SPECTRUM_META
+    )
+    domain = Domain(
+        template.domain.attributes,
+        metas=[spectrum_variable, StringVariable(UNIT_META)],
+    )
+    return Table.from_numpy(
+        domain,
+        np.asarray(X, dtype=float),
+        metas=np.column_stack((
+            np.asarray(names, dtype=object),
+            np.asarray(units, dtype=object),
+        )),
+        attributes=dict(template.attributes if attributes is None else attributes),
+    )

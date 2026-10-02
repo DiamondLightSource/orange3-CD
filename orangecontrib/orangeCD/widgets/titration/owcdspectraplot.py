@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Orange widget for plotting processed circular-dichroism spectra."""
+"""Orange widget for plotting circular-dichroism spectra."""
 
 from __future__ import annotations
 
@@ -25,15 +25,6 @@ from .utils import (
     unit_symbol,
     wavelengths as spectra_wavelengths,
 )
-
-PROCESSING_STAGES = [
-    "All spectra",
-    "raw_data",
-    "buffer_subtraction",
-    "sol_A_subtraction",
-    "subtract_frac_sol_B",
-    "plus_sol_A",
-]
 
 COLOUR_SCALES = {
     "Viridis":      ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
@@ -74,7 +65,7 @@ def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
 
 class OWCDSpectraPlot(OWWidget):
     name = "CD Spectra Plot"
-    description = "Plot spectra produced by the CD Titration Processing widget."
+    description = "Plot spectra produced by the CD Data Loader widget or by spectral preprocessing."
     icon = "icons/Titration.svg"
     priority = 30
     want_main_area = True
@@ -93,7 +84,7 @@ class OWCDSpectraPlot(OWWidget):
     spectra_names: list[str] = []
 
     class Inputs:
-        data = Input("Processed CD Data", Table)
+        data = Input("CD Data", Table)
 
     class Error(OWWidget.Error):
         missing_wavelength = Msg("The input table does not contain a 'Spectrum' string meta naming the rows.")
