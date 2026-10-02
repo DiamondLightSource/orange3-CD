@@ -26,6 +26,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Quasar spectroscopy widgets; the tables produced here are compatible with them.
+spectroscopy = [
+    "orange-spectroscopy",
+]
 test = [
     "pytest>=7",
     "pytest-cov>=4",
@@ -47,4 +51,4 @@ namespaces = true
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["orangecontrib/orangeCD/widgets/tests"]
+testpaths = ["tests"]

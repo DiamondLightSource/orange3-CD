@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Orange widget for plotting processed circular-dichroism spectra."""
+"""Orange widget for plotting circular-dichroism spectra."""
 
 from __future__ import annotations
 
@@ -8,21 +8,23 @@ import numpy as np
 import pyqtgraph as pg
 from AnyQt.QtGui import QColor
 from AnyQt.QtWidgets import QAbstractItemView
-from Orange.data import ContinuousVariable, Table
+from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
-from . import Q_
-
-PROCESSING_STAGES = [
-    "All spectra",
-    "raw_data",
-    "buffer_subtraction",
-    "sol_A_subtraction",
-    "subtract_frac_sol_B",
-    "plus_sol_A",
-]
+from .utils import (
+    InvalidWavelength,
+    SpectraError,
+    matching_spectra,
+    WAVELENGTH_UNIT_KEY,
+    shared_unit,
+    spectrum_names,
+    spectrum_units,
+    table_unit,
+    unit_symbol,
+    wavelengths as spectra_wavelengths,
+)
 
 COLOUR_SCALES = {
     "Viridis":      ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
@@ -63,8 +65,8 @@ def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
 
 class OWCDSpectraPlot(OWWidget):
     name = "CD Spectra Plot"
-    description = "Plot spectra produced by the CD Titration Processing widget."
-    icon = "icons/Titration.svg"
+    description = "Plot spectra produced by the CD Data Loader widget or by spectral preprocessing."
+    icon = "icons/CDSpectraPlot.svg"
     priority = 30
     want_main_area = True
     resizing_enabled = True
@@ -82,12 +84,12 @@ class OWCDSpectraPlot(OWWidget):
     spectra_names: list[str] = []
 
     class Inputs:
-        data = Input("Processed CD Data", Table)
+        data = Input("CD Data", Table)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg("The input table does not contain a continuous Wavelength meta attribute.")
+        missing_wavelength = Msg("The input table does not contain a 'Spectrum' string meta naming the rows.")
         no_numeric_spectra = Msg("The input table contains no continuous spectra.")
-        invalid_wavelength = Msg("The Wavelength meta contains missing values.")
+        invalid_wavelength = Msg("The input attribute names are not all valid wavelengths.")
 
     def __init__(self) -> None:
         super().__init__()
@@ -99,6 +101,8 @@ class OWCDSpectraPlot(OWWidget):
         )
 
         self.data: Table | None = None
+        # Maps list-box position -> row index in self.data
+        self._row_map: list[int] = []
         self._build_controls()
         self._build_plot()
         
@@ -227,14 +231,11 @@ class OWCDSpectraPlot(OWWidget):
         if self.data is None:
             stages = ["All spectra"]
         else:
-            variables = [
-                variable 
-                for variable in self.data.domain.attributes
-                if isinstance(variable, ContinuousVariable)
-            ]
-            stages = sorted({variable.name.split("|")[-1].strip() 
-                             for variable in variables
-                                })
+            try:
+                names = spectrum_names(self.data)
+            except SpectraError:
+                names = []
+            stages = sorted({name.split("|")[-1].strip() for name in names})
             stages.insert(0, "All spectra")
         self.processing_stages = stages
 
@@ -252,64 +253,48 @@ class OWCDSpectraPlot(OWWidget):
         self._populate_spectra()
         self._replot()
 
-    def _matching_variables(self) -> list[ContinuousVariable]:
+    def _matching_variables(self) -> list[tuple[int, str]]:
         if self.data is None:
             return []
-
-        variables = [
-            variable
-            for variable in self.data.domain.attributes
-            if isinstance(variable, ContinuousVariable)
-        ]
-        if self.selected_stage == "All spectra":
-            return variables
-
-        suffix = f" | {self.selected_stage}"
-        return [
-            variable for variable in variables if variable.name.endswith(suffix)
-        ]
+        stage = None if self.selected_stage == "All spectra" else self.selected_stage
+        try:
+            return matching_spectra(self.data, stage)
+        except SpectraError:
+            return []
 
     def _populate_spectra(self) -> None:
-        names = [variable.name for variable in self._matching_variables()]
+        matched_vars = self._matching_variables()
 
-        # Assigning through the bound attributes allows gui.listBox to update
-        # its model and selection without direct QListWidget manipulation.
-        self.spectra_names = names
-        self.selected_spectra = list(range(len(names)))
+        self._row_map = [i[0] for i in matched_vars]
+        self.spectra_names = [i[1] for i in matched_vars]
+        self.selected_spectra = list(range(len(matched_vars)))
 
     def _select_all_spectra(self) -> None:
         self.selected_spectra = list(range(len(self.spectra_names)))
         self._replot()
-
-    @staticmethod
-    def _unit_symbol(unit_name: str | None) -> str | None:
-        if not unit_name:
-            return None
-        return f"{Q_(1, unit_name).units:~}"
 
     def _update_axis_labels(self) -> None:
         wavelength_unit = None
         signal_unit = None
 
         if self.data is not None:
-            try:
-                wavelength_variable = self.data.domain["Wavelength"]
-            except KeyError:
-                wavelength_variable = None
-            if isinstance(wavelength_variable, ContinuousVariable) and (
-                wavelength_variable in self.data.domain.metas
-            ):
-                wavelength_unit = wavelength_variable.attributes.get("unit")
+            wavelength_unit = table_unit(self.data, WAVELENGTH_UNIT_KEY)
 
-            variables = self._matching_variables()
-            if variables:
-                signal_unit = variables[0].attributes.get("unit")
+            # Only label the y axis when all plotted spectra share one unit.
+            row_units = spectrum_units(self.data)
+            plotted = [
+                row_units[self._row_map[index]]
+                for index in self.selected_spectra
+                if 0 <= index < len(self._row_map)
+            ]
+            if plotted:
+                signal_unit = shared_unit(plotted)
 
         self.plot_item.setLabel(
-            "bottom", "Wavelength", units=self._unit_symbol(wavelength_unit)
+            "bottom", "Wavelength", units=unit_symbol(wavelength_unit)
         )
         self.plot_item.setLabel(
-            "left", "Circular dichroism", units=self._unit_symbol(signal_unit)
+            "left", "Circular dichroism", units=unit_symbol(signal_unit)
         )
 
     def _wavelength(self) -> np.ndarray | None:
@@ -317,22 +302,12 @@ class OWCDSpectraPlot(OWWidget):
             return None
 
         try:
-            variable = self.data.domain["Wavelength"]
-        except KeyError:
-            self.Error.missing_wavelength()
-            return None
-
-        if variable not in self.data.domain.metas or not isinstance(
-            variable, ContinuousVariable
-        ):
-            self.Error.missing_wavelength()
-            return None
-
-        wavelength = np.asarray(self.data.get_column(variable), dtype=float)
-        if np.isnan(wavelength).any():
+            return spectra_wavelengths(self.data)
+        except InvalidWavelength:
             self.Error.invalid_wavelength()
-            return None
-        return wavelength
+        except SpectraError:
+            self.Error.missing_wavelength()
+        return None
 
     def _replot(self) -> None:
         self.plot_item.clear()
@@ -349,31 +324,30 @@ class OWCDSpectraPlot(OWWidget):
         if wavelength is None:
             return
 
-        variables = self._matching_variables()
-        selected_variables = [
-            variables[index]
-            for index in self.selected_spectra
-            if 0 <= index < len(variables)
+        selected = [
+            index for index in self.selected_spectra
+            if 0 <= index < len(self._row_map)
         ]
-        if not selected_variables:
-            if not variables:
+        if not selected:
+            if not self.spectra_names:
                 self.Error.no_numeric_spectra()
             return
 
         colours = colours_from_scale(
             self.colour_scale,
-            len(selected_variables),
+            len(selected),
         )
-        for colour, variable in zip(colours, selected_variables):
-            intensity = np.asarray(self.data.get_column(variable), dtype=float)
+        for colour, index in zip(colours, selected):
+            var_name = self.spectra_names[index]
+            intensity = self.data.X[self._row_map[index]]
             valid = np.isfinite(wavelength) & np.isfinite(intensity)
-            display_name = variable.name.split(" | ", maxsplit=1)[0]
             curve = self.plot_item.plot(
                 wavelength[valid],
                 intensity[valid],
                 pen=pg.mkPen(colour, width=self.line_width),
             )
             if self.show_legend:
+                display_name = var_name.split(" | ", maxsplit=1)[0]
                 self.legend.addItem(curve, display_name)
 
         self.plot_item.invertX(self.reverse_wavelength_axis)

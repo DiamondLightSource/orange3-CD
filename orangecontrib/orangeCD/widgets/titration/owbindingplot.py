@@ -16,6 +16,7 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
+from .utils import MEASUREMENT_WAVELENGTH_KEY, table_quantity
 
 DEFAULT_X = "Titration point"
 DEFAULT_Y = "Delta A"
@@ -228,7 +229,7 @@ def fit_result(
 class OWBindingPlot(OWWidget):
     name = "Binding Plot"
     description = "Plot Binding Data and manually fit a four-parameter Hill equation."
-    icon = "icons/Titration.svg"
+    icon = "icons/BindingPlot.svg"
     priority = 50
     want_main_area = True
     resizing_enabled = True
@@ -377,6 +378,16 @@ class OWBindingPlot(OWWidget):
             return None
         return f"{Q_(1, unit_name).units:~}"
 
+    def _measurement_wavelength(self) -> str | None:
+        """The wavelength the binding data was taken at, e.g. ``"400 nm"``."""
+        if self.data is None or MEASUREMENT_WAVELENGTH_KEY not in self.data.attributes:
+            return None
+        try:
+            quantity = table_quantity(self.data, MEASUREMENT_WAVELENGTH_KEY)
+        except ValueError:
+            return None
+        return f"{quantity:~.4g}"
+
     def _selected_units(self) -> tuple[str | None, str | None]:
         if self.data is None:
             return None, None
@@ -481,7 +492,11 @@ class OWBindingPlot(OWWidget):
         self.plot.clear()
         x_unit, y_unit = self._selected_units()
         self.plot.setLabel("bottom", self.x_variable, units=self._unit_symbol(x_unit))
-        self.plot.setLabel("left", self.y_variable, units=self._unit_symbol(y_unit))
+        y_label = self.y_variable
+        wavelength = self._measurement_wavelength()
+        if wavelength and y_label:
+            y_label = f"{y_label} at {wavelength}"
+        self.plot.setLabel("left", y_label, units=self._unit_symbol(y_unit))
         if self.data is None or not self.x_variable or not self.y_variable:
             return
         try:
