@@ -51,4 +51,4 @@ namespaces = true
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["orangecontrib/orangeCD/widgets/tests"]
+testpaths = ["tests"]

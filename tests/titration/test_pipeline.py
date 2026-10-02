@@ -19,28 +19,7 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     wavelengths,
 )
 
-WAVELENGTHS = [260.0, 250.0, 240.0, 230.0]  # descending, as an instrument writes
-
-
-def write_csv(path, values):
-    """Write a file in the layout read by ``file_parser``."""
-    lines = ["Data:", "CircularDichroism,", "Wavelength,CD 1,CD 2", "nm,mdeg,mdeg"]
-    lines += [f"{w},{v},{v}" for w, v in zip(WAVELENGTHS, values)]
-    lines += ["", "HT,", "Wavelength,HT", "nm,V", "260,1", "250,1", "", ""]
-    path.write_text("\n".join(lines) + "\n")
-    return str(path)
-
-
-def titration_table(ratios, concentration=15.0):
-    domain = Domain(
-        [ContinuousVariable("normalised_molar_ratio"),
-         ContinuousVariable("working_concentration_a")]
-    )
-    domain.attributes[1].attributes["unit"] = "micromolar"
-    return Table.from_numpy(
-        domain,
-        np.column_stack((ratios, np.full(len(ratios), concentration))),
-    )
+from helpers import WAVELENGTHS, titration_table, write_csv
 
 
 class LoaderFixture:

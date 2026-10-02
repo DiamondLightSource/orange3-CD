@@ -19,7 +19,7 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     spectrum_units,
 )
 
-from test_pipeline import WAVELENGTHS, write_csv
+from helpers import WAVELENGTHS, write_csv
 
 ASC = sorted(WAVELENGTHS)
 SHAPE = np.arange(4.0)  # wavelength-dependent part, in ascending order
