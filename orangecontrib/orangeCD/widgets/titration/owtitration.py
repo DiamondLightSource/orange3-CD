@@ -609,6 +609,13 @@ class OWTitrationCalculator(OWWidget):
     class Error(OWWidget.Error):
         invalid_input = Msg("{}")
 
+    class Warning(OWWidget.Warning):
+        volume_exceeded = Msg(
+            "The total volume of Stock B added ({}) exceeds the limit of {} "
+            "(15% of the starting cell volume). The cell is diluted too much; "
+            "use a more concentrated Stock B or fewer/smaller titration steps."
+        )
+
     def __init__(self):
         super().__init__()
         modes = tuple(item.value for item in TitrationMode)
@@ -700,6 +707,7 @@ class OWTitrationCalculator(OWWidget):
 
     def calculate(self):
         self.Error.clear()
+        self.Warning.clear()
         try:
             mode = TitrationMode(self.mode)
             ratios = self._parse_float_list(self.ratios, "Molar ratios")
@@ -723,6 +731,11 @@ class OWTitrationCalculator(OWWidget):
         except (TypeError, ValueError) as exc:
             self.table_model.set_dataframe(pd.DataFrame()); self.summary_label.setText("No result")
             self.Error.invalid_input(str(exc)); self.Outputs.data.send(None); return
+
+        if result.mode == TitrationMode.INCREASING and not result.within_limit:
+            self.Warning.volume_exceeded(
+                f"{result.max_volume_added:~.4g}", f"{result.max_volume_allowed:~.4g}"
+            )
 
         self.table_model.set_dataframe(dataframe)
         summary = f"Volume of solution A: {result.volume_solution_a:g}"
