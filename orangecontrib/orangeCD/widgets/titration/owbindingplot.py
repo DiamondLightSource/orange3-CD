@@ -229,7 +229,7 @@ def fit_result(
 class OWBindingPlot(OWWidget):
     name = "Binding Plot"
     description = "Plot Binding Data and manually fit a four-parameter Hill equation."
-    icon = "icons/Titration.svg"
+    icon = "icons/BindingPlot.svg"
     priority = 50
     want_main_area = True
     resizing_enabled = True

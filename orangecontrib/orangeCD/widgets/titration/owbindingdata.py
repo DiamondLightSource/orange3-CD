@@ -60,7 +60,7 @@ class OWBindingData(OWWidget):
         "Construct the Binding data and Origin data columns at a selected "
         "wavelength."
     )
-    icon = "icons/Titration.svg"
+    icon = "icons/BindingData.svg"
     priority = 40
     want_main_area = True
     resizing_enabled = True

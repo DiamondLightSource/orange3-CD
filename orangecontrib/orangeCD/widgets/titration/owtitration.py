@@ -539,7 +539,7 @@ class DataFrameModel(gui.QtCore.QAbstractTableModel):
 class OWTitrationCalculator(OWWidget):
     name = "CD Titration Calculator"
     description = "Calculate fixed- or increasing-volume CD titration tables."
-    icon = "icons/Titration.svg"
+    icon = "icons/TitrationCalculator.svg"
     priority = 10
     want_main_area = True
     resizing_enabled = True

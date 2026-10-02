@@ -246,6 +246,7 @@ class OWMultiSave(OWWidget):
     description = (
         "Save multiple tables to an Excel workbook in different sheets"
     )
+    icon = "icons/SaveWorkbook.svg"
 
     want_main_area = False
 

@@ -66,7 +66,7 @@ def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
 class OWCDSpectraPlot(OWWidget):
     name = "CD Spectra Plot"
     description = "Plot spectra produced by the CD Data Loader widget or by spectral preprocessing."
-    icon = "icons/Titration.svg"
+    icon = "icons/CDSpectraPlot.svg"
     priority = 30
     want_main_area = True
     resizing_enabled = True

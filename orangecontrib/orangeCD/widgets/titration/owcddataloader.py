@@ -151,7 +151,7 @@ class OWCDDataLoader(OWWidget):
         "Load CD spectra from CSV files into a table of spectra, ready for "
         "spectral preprocessing."
     )
-    icon = "icons/Titration.svg"
+    icon = "icons/CDDataLoader.svg"
     priority = 20
     want_main_area = True
     resizing_enabled = True

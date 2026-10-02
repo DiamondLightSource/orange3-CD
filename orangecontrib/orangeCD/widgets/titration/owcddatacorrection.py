@@ -83,7 +83,7 @@ class OWCDDataCorrection(OWWidget):
         "Apply buffer, Solution A and Solution B corrections to preprocessed "
         "CD titration spectra."
     )
-    icon = "icons/Titration.svg"
+    icon = "icons/CDDataCorrection.svg"
     priority = 25
     want_main_area = False
     resizing_enabled = False
