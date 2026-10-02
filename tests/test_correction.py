@@ -146,6 +146,25 @@ class TestCorrection(CorrectionFixture, WidgetTest):
         self.send_signal(widget.Inputs.data, Table("iris"), widget=widget)
         self.assertTrue(widget.Error.missing_spectrum_meta.is_shown())
 
+    def test_missing_dilution_factor_assumes_one_and_warns(self):
+        with tempfile.TemporaryDirectory() as d:
+            loaded = self.load(d)
+        no_dilution = Table.from_numpy(
+            Domain([ContinuousVariable("normalised_molar_ratio")]),
+            RATIO[:, None],
+        )
+        widget, out = self.correct(loaded, no_dilution)
+        self.assertTrue(widget.Warning.no_dilution_factor.is_shown())
+        self.assertFalse(widget.Error.active)
+        self.assertIsNotNone(out)
+        by_name = dict(zip(spectrum_names(out), out.X))
+        np.testing.assert_allclose(
+            by_name["2.csv | buffer_subtraction"], RAW[1] - REFERENCES["buffer"]
+        )
+        # a titration table with the column clears the warning
+        self.send_signal(widget.Inputs.titration, titration(DILUTION, RATIO), widget=widget)
+        self.assertFalse(widget.Warning.no_dilution_factor.is_shown())
+
     def test_missing_background(self):
         with tempfile.TemporaryDirectory() as d:
             widget = self.create_widget(OWCDDataLoader)

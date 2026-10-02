@@ -12,6 +12,7 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Msg, OWWidget, Output
 
 from . import ureg, Q_
+from .utils import quantity_string
 from pint import Quantity
 
 
@@ -32,7 +33,6 @@ class IncreasingRow:
     ratio: float
     stock_b: int
 
-    predicted_volume: float
     volume_added_this_step: float
     total_stock_b_volume: float
     total_cell_volume: float
@@ -45,11 +45,9 @@ class FixedRow:
     ratio: float
     stock_b: int
 
-    predicted_volume: float
     volume_stock_b: float
     baseline_volume: float
     concentration_b: float
-    cell_volume: float
     normalised_molar_ratio: float
 
 
@@ -73,7 +71,10 @@ class TitrationResult:
         """
         Convert the calculated titration rows into a pandas DataFrame.
 
-        Calculation-level metadata is added as additional columns.
+        Only per-point quantities are columns, plus the working
+        concentration of Solution A (read by Delta Epsilon). The other
+        calculation-level values are the same for every point and are
+        available from :meth:`result_attributes`.
 
         Returns
         -------
@@ -85,15 +86,7 @@ class TitrationResult:
 
         df = pd.DataFrame(asdict(row) for row in self.rows)
 
-        df["mode"] = self.mode.value
-        df["volume_solution_a"] = self.volume_solution_a
         df["working_concentration_a"] = self.working_concentration_a
-
-        if self.mode == TitrationMode.INCREASING:
-            df["volume_buffer"] = self.volume_buffer
-            df["max_volume_allowed"] = self.max_volume_allowed
-            df["max_volume_added"] = self.max_volume_added
-            df["within_limit"] = self.within_limit
 
         units: dict[str, str] = {}
         for column in df.columns:
@@ -103,6 +96,21 @@ class TitrationResult:
                 df[column] = df[column].apply(lambda value: value.magnitude)
 
         return df, units
+
+    def result_attributes(self) -> dict[str, object]:
+        """Calculation-level values, for ``Table.attributes``."""
+        attributes: dict[str, object] = {
+            "mode": self.mode.value,
+            "volume_solution_a": quantity_string(self.volume_solution_a),
+        }
+        if self.mode == TitrationMode.INCREASING:
+            attributes.update({
+                "volume_buffer": quantity_string(self.volume_buffer),
+                "max_volume_allowed": quantity_string(self.max_volume_allowed),
+                "max_volume_added": quantity_string(self.max_volume_added),
+                "within_limit": bool(self.within_limit),
+            })
+        return attributes
 
 
 class CDTitrationCalculator:
@@ -399,12 +407,6 @@ class CDTitrationCalculator:
                 )
             )
 
-            predicted_volume = (
-                calculated_volume
-                if point.predicted_volume is None
-                else point.predicted_volume
-            )
-
             volume_stock_b = round(calculated_volume,1)
 
             baseline_volume = round(self.starting_cell_volume - volume_a - volume_stock_b, 1)
@@ -421,11 +423,9 @@ class CDTitrationCalculator:
                 FixedRow(
                     ratio=point.ratio,
                     stock_b=point.stock_b,
-                    predicted_volume=round(predicted_volume, 3),
                     volume_stock_b=volume_stock_b,
                     baseline_volume=baseline_volume,
                     concentration_b=concentration_b,
-                    cell_volume=self.starting_cell_volume,
                     normalised_molar_ratio=round(point.ratio/self.stock_b_molar_equiv, 3)
                 )
             )
@@ -469,12 +469,6 @@ class CDTitrationCalculator:
                 )
             )
 
-            predicted_volume = (
-                calculated_step_volume
-                if point.predicted_volume is None
-                else point.predicted_volume
-            )
-
             step_volume = round(calculated_step_volume, 1)
 
             total_stock_b = round(total_stock_b + step_volume, 1)
@@ -487,10 +481,6 @@ class CDTitrationCalculator:
                 IncreasingRow(
                     ratio=point.ratio,
                     stock_b=point.stock_b,
-                    predicted_volume=round(
-                        predicted_volume,
-                        3,
-                    ),
                     volume_added_this_step=step_volume,
                     total_stock_b_volume=total_stock_b,
                     total_cell_volume=total_cell_volume,
@@ -742,10 +732,12 @@ class OWTitrationCalculator(OWWidget):
         if result.mode == TitrationMode.INCREASING:
             summary += f" | Initial buffer volume: {result.volume_buffer:g} | Added volume within 15% limit: {'yes' if result.within_limit else 'no'}"
         self.summary_label.setText(summary)
-        self.Outputs.data.send(self._to_orange_table(dataframe, units))
+        self.Outputs.data.send(
+            self._to_orange_table(dataframe, units, result.result_attributes())
+        )
 
     @staticmethod
-    def _to_orange_table(dataframe, units):
+    def _to_orange_table(dataframe, units, attributes):
         numeric = [c for c in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[c]) and not pd.api.types.is_bool_dtype(dataframe[c])]
         meta = [c for c in dataframe.columns if c not in numeric]
 
@@ -756,7 +748,12 @@ class OWTitrationCalculator(OWWidget):
             return variable
 
         domain = Domain([continuous_variable(c) for c in numeric], metas=[StringVariable(str(c)) for c in meta])
-        return Table.from_numpy(domain, dataframe[numeric].to_numpy(dtype=float), metas=dataframe[meta].astype(str).to_numpy(dtype=object))
+        return Table.from_numpy(
+            domain,
+            dataframe[numeric].to_numpy(dtype=float),
+            metas=dataframe[meta].astype(str).to_numpy(dtype=object),
+            attributes=attributes,
+        )
 
 
 if __name__ == "__main__":

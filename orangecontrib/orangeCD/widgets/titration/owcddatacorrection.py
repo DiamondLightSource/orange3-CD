@@ -109,6 +109,11 @@ class OWCDDataCorrection(OWWidget):
 
     class Warning(OWWidget.Warning):
         no_titration = Msg("Connect a Titration Table to correct the spectra.")
+        no_dilution_factor = Msg(
+            f"The Titration Table has no '{DILUTION_COLUMN}' column: a dilution "
+            "factor of 1 was assumed for every point (correct only for a "
+            "fixed-volume titration)."
+        )
         no_sol_b = Msg(
             "No 'Background | sol_B' spectrum: Solution B subtraction skipped."
         )
@@ -123,7 +128,7 @@ class OWCDDataCorrection(OWWidget):
             "Applied to every 'raw_data' spectrum using the 'Background | "
             "buffer', 'sol_A' and 'sol_B' spectra and the dilution factor and "
             "normalised molar ratio of the Titration Table:\n"
-            "1. buffer subtraction x dilution factor\n"
+            "1. buffer subtraction x dilution factor (1 if the Titration Table has none)\n"
             "2. subtract Solution A\n"
             "3. subtract Solution B x molar ratio\n"
             "4. add Solution A back\n"
@@ -192,13 +197,18 @@ class OWCDDataCorrection(OWWidget):
             return None
 
         try:
-            dilution = self._titration_column(DILUTION_COLUMN)
             ratio = self._titration_column(RATIO_COLUMN)
-            if len(dilution) != len(data_rows):
+            if len(ratio) != len(data_rows):
                 raise ValueError(
-                    f"The Titration Table has {len(dilution)} rows but there "
+                    f"The Titration Table has {len(ratio)} rows but there "
                     f"are {len(data_rows)} '{DATA_STAGE}' spectra"
                 )
+            if DILUTION_COLUMN in self.titration.domain:
+                dilution = self._titration_column(DILUTION_COLUMN)
+            else:
+                # Fixed-volume titrations do not dilute the cell.
+                self.Warning.no_dilution_factor()
+                dilution = np.ones(len(ratio))
         except ValueError as exc:
             self.Error.invalid_titration(str(exc))
             return None
