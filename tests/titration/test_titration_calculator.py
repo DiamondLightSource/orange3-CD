@@ -2,7 +2,7 @@ import pytest
 from Orange.widgets.tests import base as orange_tests
 from pint import Quantity
 
-from orangecontrib.orangeCD.widgets.titration import Q_
+from orangecontrib.orangeCD.units import Q_
 from orangecontrib.orangeCD.widgets.titration.owtitration import (
     CDTitrationCalculator,
     OWTitrationCalculator,

@@ -10,7 +10,7 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
-from . import Q_
+from ...units import Q_
 from .utils import (
     BACKGROUND_PREFIX,
     WAVELENGTH_UNIT_KEY,
@@ -197,15 +197,23 @@ class OWCDDataCorrection(OWWidget):
 
         lazy_box = gui.widgetBox(self.controlArea, "Lazy process")
         gui.checkBox(
-            lazy_box, self, "lazy_process", "Lazy process",
+            lazy_box,
+            self,
+            "lazy_process",
+            "Lazy process",
             callback=self.commit,
             tooltip="Find the flattest region of the spectra and subtract each "
-                    "spectrum's mean over it before the corrections.",
+            "spectrum's mean over it before the corrections.",
         )
         gui.spin(
-            lazy_box, self, "lazy_window_percent", 2, 50,
+            lazy_box,
+            self,
+            "lazy_window_percent",
+            2,
+            50,
             label="Flat region width (% of wavelength range)",
-            orientation=Qt.Horizontal, callback=self.commit,
+            orientation=Qt.Horizontal,
+            callback=self.commit,
         )
         self.lazy_label = gui.widgetLabel(lazy_box, "")
         self.lazy_label.setWordWrap(True)

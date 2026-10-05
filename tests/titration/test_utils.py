@@ -3,7 +3,7 @@ import pytest
 from helpers import spectra_table
 from Orange.data import ContinuousVariable, Domain, Table
 
-from orangecontrib.orangeCD.widgets.titration import Q_
+from orangecontrib.orangeCD.units import Q_
 from orangecontrib.orangeCD.widgets.titration.utils import (
     MDEG_PER_DELTA_A,
     InvalidWavelength,
@@ -195,7 +195,9 @@ class TestPreprocessingDetection:
 
     def test_cut_alone_is_not_detected(self, table, preprocess):
         # Cut only selects columns, so it leaves no trace (documented limit).
-        assert not has_spectroscopy_preprocessing(preprocess.Cut(lowlim=235, highlim=255)(table))
+        assert not has_spectroscopy_preprocessing(
+            preprocess.Cut(lowlim=235, highlim=255)(table)
+        )
 
     def test_cut_then_baseline_is_detected(self, table, preprocess):
         cut = preprocess.Cut(lowlim=235, highlim=255)(table)

@@ -5,7 +5,7 @@ from Orange.widgets.tests import base as orange_tests
 
 pytest.importorskip("cdpro")
 
-from orangecontrib.orangeCD.widgets.titration.owsecondarystructure import (
+from orangecontrib.orangeCD.widgets.core.owsecondarystructure import (
     OWSecondaryStructure,
     find_delta_epsilon_rows,
     wavelengths_nm,

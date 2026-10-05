@@ -5,7 +5,7 @@ from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 from pint import DimensionalityError
 
-from orangecontrib.orangeCD.widgets.titration import Q_
+from orangecontrib.orangeCD.units import Q_
 from orangecontrib.orangeCD.widgets.titration.owdeltaepsilon import (
     DELTA_EPSILON_UNIT,
     OWDeltaEpsilon,

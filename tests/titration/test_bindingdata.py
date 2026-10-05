@@ -3,7 +3,7 @@ from helpers import spectra_table, titration_table
 from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 
-from orangecontrib.orangeCD.widgets.titration import Q_
+from orangecontrib.orangeCD.units import Q_
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
 from orangecontrib.orangeCD.widgets.titration.utils import (
     CONCENTRATION_KEY,

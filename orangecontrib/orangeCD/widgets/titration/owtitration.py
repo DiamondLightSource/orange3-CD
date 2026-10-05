@@ -13,7 +13,7 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Msg, Output, OWWidget
 from pint import Quantity
 
-from . import Q_
+from ...units import Q_
 from .utils import quantity_string
 
 

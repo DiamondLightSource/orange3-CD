@@ -240,25 +240,36 @@ def test_correct_spectra_without_sol_b():
 
 WL = np.arange(190.0, 261.0)  # 71 points, signal below 230 nm, flat above 235 nm
 LAZY_NAMES = [
-    "Background | buffer", "Background | sol_A", "Background | sol_B",
-    "a | raw_data", "b | raw_data", "c | raw_data",
+    "Background | buffer",
+    "Background | sol_A",
+    "Background | sol_B",
+    "a | raw_data",
+    "b | raw_data",
+    "c | raw_data",
 ]
 
 
-def synthetic_spectra(offsets=(0.3, 1.0, 0.5, 0.7, 0.9, 1.2),
-                      amplitudes=(0.1, 6.0, 3.0, 2.0, 4.0, 5.0), noise=0.002):
+def synthetic_spectra(
+    offsets=(0.3, 1.0, 0.5, 0.7, 0.9, 1.2),
+    amplitudes=(0.1, 6.0, 3.0, 2.0, 4.0, 5.0),
+    noise=0.002,
+):
     rng = np.random.default_rng(0)
     signal = np.exp(-(((WL - 210) / 8) ** 2)) * np.sin((WL - 190) / 6)
-    return np.array([
-        offset + amplitude * signal + rng.normal(0, noise, WL.size)
-        for offset, amplitude in zip(offsets, amplitudes)
-    ])
+    return np.array(
+        [
+            offset + amplitude * signal + rng.normal(0, noise, WL.size)
+            for offset, amplitude in zip(offsets, amplitudes)
+        ]
+    )
 
 
 def lazy_table(X=None, **kwargs):
     from helpers import spectra_table
-    return spectra_table(LAZY_NAMES, synthetic_spectra() if X is None else X,
-                         wavelengths=WL, **kwargs)
+
+    return spectra_table(
+        LAZY_NAMES, synthetic_spectra() if X is None else X, wavelengths=WL, **kwargs
+    )
 
 
 class TestFlatRegion:
@@ -327,8 +338,11 @@ class TestPreprocessingWarnings(CorrectionFixture, orange_tests.WidgetTest):
         self.tit = titration([1.0, 1.0, 1.0], RATIO)
 
     def send(self, table, tit=None):
-        self.send_signal(self.widget.Inputs.titration, self.tit if tit is None else tit,
-                         widget=self.widget)
+        self.send_signal(
+            self.widget.Inputs.titration,
+            self.tit if tit is None else tit,
+            widget=self.widget,
+        )
         self.send_signal(self.widget.Inputs.data, table, widget=self.widget)
 
     def preprocessed(self, table):
@@ -384,8 +398,12 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
 
     def tick(self, checked=True):
         from AnyQt.QtWidgets import QCheckBox
-        box = next(c for c in self.widget.controlArea.findChildren(QCheckBox)
-                   if c.text() == "Lazy process")
+
+        box = next(
+            c
+            for c in self.widget.controlArea.findChildren(QCheckBox)
+            if c.text() == "Lazy process"
+        )
         if box.isChecked() != checked:
             box.click()
         return box
@@ -414,9 +432,12 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
 
     def test_matches_manual_baseline_subtraction(self):
         from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
+
         X = synthetic_spectra()
         manual_X, _, _ = auto_baseline(X, self.widget.lazy_window_percent)
-        manual = build_spectra_table(lazy_table(X), manual_X, LAZY_NAMES, ["millidegree"] * 6)
+        manual = build_spectra_table(
+            lazy_table(X), manual_X, LAZY_NAMES, ["millidegree"] * 6
+        )
         self.send(manual)
         expected = self.output().X[6:]
         self.send(lazy_table(X))
@@ -436,14 +457,21 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
         self.tick()
         out = self.rows(self.output())
         tail = WL >= 236
-        for stage in ("buffer_subtraction", "sol_A_subtraction", "subtract_frac_sol_B", "plus_sol_A"):
+        for stage in (
+            "buffer_subtraction",
+            "sol_A_subtraction",
+            "subtract_frac_sol_B",
+            "plus_sol_A",
+        ):
             assert np.abs(out[f"a | {stage}"][tail]).max() < 0.05, stage
 
     def test_region_label_and_attribute(self):
         self.send(lazy_table())
         assert self.widget.lazy_label.text() == ""
         self.tick()
-        start, stop = (float(self.output().attributes["lazy_baseline_region"][i]) for i in (0, 1))
+        start, stop = (
+            float(self.output().attributes["lazy_baseline_region"][i]) for i in (0, 1)
+        )
         assert start >= 235 and stop <= 260
         assert f"{start:g}" in self.widget.lazy_label.text()
         assert f"{stop:g}" in self.widget.lazy_label.text()
@@ -501,6 +529,7 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
         # drop the buffer row: the corrections cannot run
         names = [n for n in LAZY_NAMES if n != "Background | buffer"]
         from helpers import spectra_table
+
         self.send(spectra_table(names, table.X[1:], wavelengths=WL))
         assert self.widget.Error.missing_background.is_shown()
         assert self.output() is None
@@ -514,5 +543,7 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
     def test_no_wavelength_unit(self):
         self.tick()
         self.send(lazy_table(wavelength_unit=None))
-        assert self.widget.lazy_label.text().startswith("Baseline taken from the flat region")
+        assert self.widget.lazy_label.text().startswith(
+            "Baseline taken from the flat region"
+        )
         assert self.output() is not None

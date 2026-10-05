@@ -11,7 +11,7 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 from pint import Quantity
 
-from . import Q_
+from ...units import Q_
 from .utils import (
     CONCENTRATION_KEY,
     DELTA_EPSILON_UNIT,

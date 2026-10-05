@@ -16,8 +16,8 @@ from Orange.widgets.utils.concurrent import ConcurrentWidgetMixin, TaskState
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 from pint.errors import PintError
 
-from . import Q_
-from .utils import (
+from ...units import Q_
+from ..titration.utils import (
     DELTA_EPSILON_UNIT,
     SPECTRUM_META,
     SPECTRUM_UNIT_KEY,

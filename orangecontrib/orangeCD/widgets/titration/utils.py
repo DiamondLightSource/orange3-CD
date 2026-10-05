@@ -12,7 +12,7 @@ import numpy as np
 from Orange.data import Domain, StringVariable, Table
 from pint import Quantity
 
-from . import Q_
+from ...units import Q_
 
 SPECTRUM_META = "Spectrum"
 UNIT_META = "Unit"

@@ -41,6 +41,7 @@ orange_cd = "orangecontrib.orangeCD"
 
 [project.entry-points."orange.widgets"]
 "CD Titration" = "orangecontrib.orangeCD.widgets.titration"
+"CD Core" = "orangecontrib.orangeCD.widgets.core"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -49,6 +50,7 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "orangecontrib.orangeCD.widgets.titration" = ["icons/*.svg"]
+"orangecontrib.orangeCD.widgets.core" = ["icons/*.svg"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
@@ -60,3 +62,5 @@ filterwarnings = [
     "ignore:_LinearBaselineCommon should define __eq__:UserWarning",
 ]
 testpaths = ["tests"]
+# the shared widget-test builders live in tests/titration
+pythonpath = ["tests/titration"]
