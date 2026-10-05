@@ -88,11 +88,17 @@ class TestCreatePoints:
     def test_fixed_uses_full_ratio(self):
         points = make_calculator().create_points([1.6, 3.2], mode=TitrationMode.FIXED)
         assert [p.ratio for p in points] == [1.6, 3.2]
-        assert magnitude(points[1].predicted_volume) == pytest.approx(3.2 * 19.659 * 500 / 2000)
+        assert magnitude(points[1].predicted_volume) == pytest.approx(
+            3.2 * 19.659 * 500 / 2000
+        )
 
     def test_increasing_uses_increment(self):
-        points = make_calculator().create_points([1.6, 2.6], mode=TitrationMode.INCREASING)
-        assert magnitude(points[1].predicted_volume) == pytest.approx(1.0 * 19.659 * 500 / 2000)
+        points = make_calculator().create_points(
+            [1.6, 2.6], mode=TitrationMode.INCREASING
+        )
+        assert magnitude(points[1].predicted_volume) == pytest.approx(
+            1.0 * 19.659 * 500 / 2000
+        )
 
     @pytest.mark.parametrize("ratios", [[], [0.5, 0], [-1]])
     def test_invalid_ratios(self, ratios):
@@ -113,7 +119,10 @@ class TestCreatePoints:
 class TestCalculateFixed:
     def setup_method(self):
         calculator = make_calculator()
-        points = [TitrationPoint(ratio=1.0, stock_b=1), TitrationPoint(ratio=2.0, stock_b=2)]
+        points = [
+            TitrationPoint(ratio=1.0, stock_b=1),
+            TitrationPoint(ratio=2.0, stock_b=2),
+        ]
         self.result = calculator.calculate(TitrationMode.FIXED, points)
 
     def test_rows(self):
@@ -127,14 +136,21 @@ class TestCalculateFixed:
 
     def test_cell_volume_is_constant(self):
         for row in self.result.rows:
-            total = row.volume_stock_b + row.baseline_volume + self.result.volume_solution_a
+            total = (
+                row.volume_stock_b + row.baseline_volume + self.result.volume_solution_a
+            )
             assert magnitude(total) == pytest.approx(500.0)
 
     def test_dataframe_has_only_per_point_columns(self):
         frame, units = self.result.result_to_dataframe()
         assert list(frame.columns) == [
-            "ratio", "stock_b", "volume_stock_b", "baseline_volume",
-            "concentration_b", "normalised_molar_ratio", "working_concentration_a",
+            "ratio",
+            "stock_b",
+            "volume_stock_b",
+            "baseline_volume",
+            "concentration_b",
+            "normalised_molar_ratio",
+            "working_concentration_a",
         ]
         assert units["baseline_volume"] == UL
         assert units["working_concentration_a"] == UM
@@ -152,7 +168,9 @@ class TestCalculateFixed:
             stock_b_concentrations=[Q_(100, UM)],
         )
         with pytest.raises(ValueError, match="negative"):
-            calculator.calculate(TitrationMode.FIXED, [TitrationPoint(ratio=10.0, stock_b=1)])
+            calculator.calculate(
+                TitrationMode.FIXED, [TitrationPoint(ratio=10.0, stock_b=1)]
+            )
 
 
 class TestCalculateIncreasing:
@@ -192,7 +210,12 @@ class TestCalculateIncreasing:
 class TestCalculateValidation:
     @pytest.mark.parametrize(
         "points",
-        [[], [TitrationPoint(0.0, 1)], [TitrationPoint(1.0, 0)], [TitrationPoint(1.0, 4)]],
+        [
+            [],
+            [TitrationPoint(0.0, 1)],
+            [TitrationPoint(1.0, 0)],
+            [TitrationPoint(1.0, 4)],
+        ],
     )
     def test_invalid_points(self, points):
         with pytest.raises(ValueError):

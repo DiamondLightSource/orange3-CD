@@ -85,7 +85,8 @@ def file_parser(filename: str) -> dict[str, object]:
     with open(filename, encoding="utf-8") as stream:
         lines = stream.readlines()
     starts = [
-        i for i, line in enumerate(lines)
+        i
+        for i, line in enumerate(lines)
         if ":" in line.split(",")[0] and "#" not in line.split(",")[0]
     ]
     starts.append(len(lines))
@@ -209,14 +210,24 @@ class OWCDDataLoader(OWWidget):
 
         units_box = gui.widgetBox(self.controlArea, "Units of the data files")
         gui.comboBox(
-            units_box, self, "wavelength_unit", label="Wavelength:",
-            items=WAVELENGTH_UNITS, sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._units_changed,
+            units_box,
+            self,
+            "wavelength_unit",
+            label="Wavelength:",
+            items=WAVELENGTH_UNITS,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal,
+            callback=self._units_changed,
         )
         gui.comboBox(
-            units_box, self, "cd_unit", label="CD signal:",
-            items=CD_SIGNAL_UNITS, sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._units_changed,
+            units_box,
+            self,
+            "cd_unit",
+            label="CD signal:",
+            items=CD_SIGNAL_UNITS,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal,
+            callback=self._units_changed,
         )
         gui.rubber(self.controlArea)
 
@@ -235,14 +246,20 @@ class OWCDDataLoader(OWWidget):
     def _add_reference_selector(self, parent, label: str, setting: str) -> None:
         row = gui.hBox(parent)
         editor = gui.lineEdit(
-            row, self, setting, label=label, orientation=Qt.Horizontal,
+            row,
+            self,
+            setting,
+            label=label,
+            orientation=Qt.Horizontal,
             callback=self.commit,
         )
         editor.setMinimumWidth(380)
         editor.setToolTip(str(getattr(self, setting)))
         editor.textChanged.connect(editor.setToolTip)
         gui.button(
-            row, self, "Browse…",
+            row,
+            self,
+            "Browse…",
             callback=lambda _checked=False, name=setting: self._choose_reference(name),
         )
 
@@ -301,7 +318,8 @@ class OWCDDataLoader(OWWidget):
             count = max(len(self.cd_data.columns), 1)
             for index, name in enumerate(self.cd_data.columns):
                 self.plot_widget.plot(
-                    x, self.cd_data[name].to_numpy(dtype=float),
+                    x,
+                    self.cd_data[name].to_numpy(dtype=float),
                     pen=pg.mkPen(pg.intColor(index, count), width=1.2),
                 )
         self.plot_widget.enableAutoRange()
@@ -336,9 +354,7 @@ class OWCDDataLoader(OWWidget):
                 raise ValueError(
                     "The selected files do not all share the same wavelength axis"
                 )
-            table = dataframe_to_orange_table(
-                frame, self.wavelength_unit, self.cd_unit
-            )
+            table = dataframe_to_orange_table(frame, self.wavelength_unit, self.cd_unit)
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
             self.Error.load_failed(str(exc))
             self.Outputs.data.send(None)
@@ -348,4 +364,5 @@ class OWCDDataLoader(OWWidget):
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
+
     WidgetPreview(OWCDDataLoader).run()

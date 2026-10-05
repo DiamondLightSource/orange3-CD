@@ -74,12 +74,12 @@ def calculate_delta_epsilon(
             raise ValueError(f"{name} must be a finite value greater than zero")
 
     delta_a = (cd.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to("dimensionless")
-    residue_ratio = (
-        mean_residue_molecular_weight / solution_a_molecular_weight
-    ).to("dimensionless")
-    return (
-        delta_a * residue_ratio / (concentration * pathlength)
-    ).to(DELTA_EPSILON_UNIT)
+    residue_ratio = (mean_residue_molecular_weight / solution_a_molecular_weight).to(
+        "dimensionless"
+    )
+    return (delta_a * residue_ratio / (concentration * pathlength)).to(
+        DELTA_EPSILON_UNIT
+    )
 
 
 class OWDeltaEpsilon(OWWidget):
@@ -111,9 +111,7 @@ class OWDeltaEpsilon(OWWidget):
         missing_wavelength = Msg(
             "Input does not contain a 'Spectrum' string meta naming the rows."
         )
-        invalid_wavelength = Msg(
-            "Input attribute names are not all valid wavelengths."
-        )
+        invalid_wavelength = Msg("Input attribute names are not all valid wavelengths.")
         no_series_names = Msg(
             "Input features do not use the expected 'sample | series' names."
         )
@@ -166,16 +164,24 @@ class OWDeltaEpsilon(OWWidget):
     def _build_controls(self) -> None:
         series_box = gui.widgetBox(self.controlArea, "Data series")
         self.data_combo = gui.comboBox(
-            series_box, self, "data_series",
-            label="Titration data series", items=[],
+            series_box,
+            self,
+            "data_series",
+            label="Titration data series",
+            items=[],
             sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._series_changed,
+            orientation=Qt.Horizontal,
+            callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
-            series_box, self, "solution_a_series",
-            label="Solution A series", items=[],
+            series_box,
+            self,
+            "solution_a_series",
+            label="Solution A series",
+            items=[],
             sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._series_changed,
+            orientation=Qt.Horizontal,
+            callback=self._series_changed,
         )
         note = gui.widgetLabel(
             series_box,
@@ -190,22 +196,40 @@ class OWDeltaEpsilon(OWWidget):
         )
         self.concentration_label.setWordWrap(True)
         gui.doubleSpin(
-            conversion_box, self, "pathlength_cm", 1e-12, 1e6,
-            step=0.1, decimals=6,
+            conversion_box,
+            self,
+            "pathlength_cm",
+            1e-12,
+            1e6,
+            step=0.1,
+            decimals=6,
             label=f"Pathlength ({self._unit_symbol(PATHLENGTH_UNIT)})",
-            orientation=Qt.Horizontal, callback=self.commit.deferred,
+            orientation=Qt.Horizontal,
+            callback=self.commit.deferred,
         )
         gui.doubleSpin(
-            conversion_box, self, "mean_residue_molecular_weight", 1e-12, 1e6,
-            step=1.0, decimals=3,
+            conversion_box,
+            self,
+            "mean_residue_molecular_weight",
+            1e-12,
+            1e6,
+            step=1.0,
+            decimals=3,
             label=f"Mean residue molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
-            orientation=Qt.Horizontal, callback=self.commit.deferred,
+            orientation=Qt.Horizontal,
+            callback=self.commit.deferred,
         )
         gui.doubleSpin(
-            conversion_box, self, "solution_a_molecular_weight", 1e-12, 1e12,
-            step=100.0, decimals=3,
+            conversion_box,
+            self,
+            "solution_a_molecular_weight",
+            1e-12,
+            1e12,
+            step=100.0,
+            decimals=3,
             label=f"Solution A molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
-            orientation=Qt.Horizontal, callback=self.commit.deferred,
+            orientation=Qt.Horizontal,
+            callback=self.commit.deferred,
         )
         equation = gui.widgetLabel(
             conversion_box,
@@ -258,7 +282,9 @@ class OWDeltaEpsilon(OWWidget):
                 pass
         self.available_series = stages
         data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
-        solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
+        solution_a = self._preferred(
+            stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
+        )
         self._updating_series = True
         for combo, selected in (
             (self.data_combo, data_stage),
@@ -278,9 +304,7 @@ class OWDeltaEpsilon(OWWidget):
         self._updating_series = False
 
     @staticmethod
-    def _preferred(
-        values: list[str], current: str, defaults: tuple[str, ...]
-    ) -> str:
+    def _preferred(values: list[str], current: str, defaults: tuple[str, ...]) -> str:
         if current in values:
             return current
         for default in defaults:
@@ -315,9 +339,7 @@ class OWDeltaEpsilon(OWWidget):
             return []
 
     def _solution_a_variable(self) -> tuple[int, str] | None:
-        return reference_spectrum(
-            self._variables_matching(self.solution_a_series)
-        )
+        return reference_spectrum(self._variables_matching(self.solution_a_series))
 
     @staticmethod
     def _delta_name(variable: str) -> str:
@@ -345,8 +367,7 @@ class OWDeltaEpsilon(OWWidget):
             )
         else:
             self.concentration_label.setText(
-                f"Solution A concentration: {concentration:g} "
-                f"(from Titration Table)"
+                f"Solution A concentration: {concentration:g} (from Titration Table)"
             )
 
         if self.data is None:
@@ -390,23 +411,23 @@ class OWDeltaEpsilon(OWWidget):
             return
 
         pathlength = Q_(self.pathlength_cm, PATHLENGTH_UNIT)
-        mean_residue_mw = Q_(
-            self.mean_residue_molecular_weight, MOLECULAR_WEIGHT_UNIT
-        )
+        mean_residue_mw = Q_(self.mean_residue_molecular_weight, MOLECULAR_WEIGHT_UNIT)
         solution_a_mw = Q_(self.solution_a_molecular_weight, MOLECULAR_WEIGHT_UNIT)
         try:
             # (n_spectra, n_wavelengths), each row in its own unit.
             raw_values = self.data.X[raw_variables_idx]
-            converted = np.vstack([
-                calculate_delta_epsilon(
-                    Q_(row_values, unit),
-                    concentration,
-                    pathlength,
-                    mean_residue_mw,
-                    solution_a_mw,
-                ).magnitude
-                for row_values, unit in zip(raw_values, raw_units)
-            ])
+            converted = np.vstack(
+                [
+                    calculate_delta_epsilon(
+                        Q_(row_values, unit),
+                        concentration,
+                        pathlength,
+                        mean_residue_mw,
+                        solution_a_mw,
+                    ).magnitude
+                    for row_values, unit in zip(raw_values, raw_units)
+                ]
+            )
         except (TypeError, ValueError) as exc:
             self.Error.invalid_parameter(str(exc))
             self.Outputs.data.send(None)
@@ -422,20 +443,24 @@ class OWDeltaEpsilon(OWWidget):
         )
         output.name = (
             f"{self.data.name} - CD and delta epsilon"
-            if self.data.name else "CD and delta epsilon"
+            if self.data.name
+            else "CD and delta epsilon"
         )
-        output.attributes.update({
-            "data_series": self.data_series,
-            "solution_a_series": self.solution_a_series,
-            "delta_epsilon_suffix": DELTA_EPSILON_SUFFIX,
-            CONCENTRATION_KEY: quantity_string(concentration),
-            PATHLENGTH_KEY: quantity_string(pathlength),
-            "mean_residue_molecular_weight": quantity_string(mean_residue_mw),
-            "solution_a_molecular_weight": quantity_string(solution_a_mw),
-        })
+        output.attributes.update(
+            {
+                "data_series": self.data_series,
+                "solution_a_series": self.solution_a_series,
+                "delta_epsilon_suffix": DELTA_EPSILON_SUFFIX,
+                CONCENTRATION_KEY: quantity_string(concentration),
+                PATHLENGTH_KEY: quantity_string(pathlength),
+                "mean_residue_molecular_weight": quantity_string(mean_residue_mw),
+                "solution_a_molecular_weight": quantity_string(solution_a_mw),
+            }
+        )
         self.Outputs.data.send(output)
 
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
+
     WidgetPreview(OWDeltaEpsilon).run()

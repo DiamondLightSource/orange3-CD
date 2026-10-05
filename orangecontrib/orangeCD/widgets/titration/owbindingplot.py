@@ -30,6 +30,8 @@ functions for fitting curves. These are pure function models, of form
 func(x: np.adarray, *args) -> nd.array, where func() performs some operation
 on x with the values in args
 """
+
+
 def hill_equation(
     x: np.ndarray,
     v_max: float,
@@ -45,6 +47,7 @@ def hill_equation(
         x_power = np.power(x, hill_coefficient)
         half_power = np.power(half_saturation, hill_coefficient)
         return v_max * x_power / (half_power + x_power)
+
 
 def hill1_equation(
     x: np.ndarray,
@@ -63,13 +66,9 @@ def hill1_equation(
         half_power = np.power(half_saturation, hill_coefficient)
         return bottom + (top - bottom) * x_power / (half_power + x_power)
 
+
 def bihill_equation(
-    x: np.ndarray,
-    p_m: float,
-    k_a: float,
-    h_a: float,
-    k_i: float,
-    h_i: float
+    x: np.ndarray, p_m: float, k_a: float, h_a: float, k_i: float, h_i: float
 ) -> np.ndarray:
     """Five-parameter BiHill equation
 
@@ -82,18 +81,21 @@ def bihill_equation(
         den = term1 * term2
         return p_m / den
 
+
 """
 Fitting wrapper functions. These take the data to fit, and perform the fitting
 using lmfit, constructing the model and parameters using appropriate estimates.
 Before fitting, they check the input data is valid using validate_data().
 After fitting, a Table is constructed using the fit_result() function.
 """
+
+
 def fit_hill(
-        x: np.ndarray,
-        y: np.ndarray,
-        x_unit: str | None = None,
-        y_unit: str | None = None,
-        ):
+    x: np.ndarray,
+    y: np.ndarray,
+    x_unit: str | None = None,
+    y_unit: str | None = None,
+):
 
     x, y = validate_data(x, y)
 
@@ -101,24 +103,30 @@ def fit_hill(
     half_guess = float(np.median(x))
 
     model = Model(hill_equation)
-    params = model.make_params(v_max = top_guess,
-                               half_saturation = {"value": half_guess, "min": 0},
-                               hill_coefficient = {"value": 1.0, "min": 0}
-                               )
+    params = model.make_params(
+        v_max=top_guess,
+        half_saturation={"value": half_guess, "min": 0},
+        hill_coefficient={"value": 1.0, "min": 0},
+    )
     result = model.fit(y, params=params, x=x)
 
     x_plt = np.linspace(x[0], x[-1])
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+    return fit_result(result, x_unit, y_unit), {
+        "x_plt": x_plt,
+        "y_plt": y_plt,
+        "y_err": y_err,
+    }
+
 
 def fit_hill1(
-        x: np.ndarray,
-        y: np.ndarray,
-        x_unit: str | None = None,
-        y_unit: str | None = None,
-        ):
+    x: np.ndarray,
+    y: np.ndarray,
+    x_unit: str | None = None,
+    y_unit: str | None = None,
+):
     x, y = validate_data(x, y)
 
     bottom_guess = float(y[np.argmin(x)])
@@ -126,43 +134,61 @@ def fit_hill1(
     half_guess = float(np.median(x))
 
     model = Model(hill1_equation)
-    params = model.make_params(bottom = bottom_guess,
-                               top = top_guess,
-                               half_saturation = {"value": half_guess, "min": 0},
-                               hill_coefficient = {"value": 1.0, "min": 0}
-                               )
+    params = model.make_params(
+        bottom=bottom_guess,
+        top=top_guess,
+        half_saturation={"value": half_guess, "min": 0},
+        hill_coefficient={"value": 1.0, "min": 0},
+    )
     result = model.fit(y, params=params, x=x)
 
     x_plt = np.linspace(x[0], x[-1])
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+    return fit_result(result, x_unit, y_unit), {
+        "x_plt": x_plt,
+        "y_plt": y_plt,
+        "y_err": y_err,
+    }
+
 
 def fit_bihill(
-        x: np.ndarray,
-        y: np.ndarray,
-        x_unit: str | None = None,
-        y_unit: str | None = None,
-        ):
+    x: np.ndarray,
+    y: np.ndarray,
+    x_unit: str | None = None,
+    y_unit: str | None = None,
+):
 
     x, y = validate_data(x, y)
 
     model = Model(bihill_equation)
-    params = model.make_params(p_m = {"value": y.max(), "min": 0},
-                               k_a = {"value": x[np.argmax(np.gradient(y))], "min": 0},
-                               k_i = {"value": x[np.argmin(np.gradient(y))], "min": 0},
-                               # possibly could estimate this better in future?
-                               h_a = {"value": 1, "min": 0,},
-                               h_i = {"value": 1, "min": 0,},
-                               )
+    params = model.make_params(
+        p_m={"value": y.max(), "min": 0},
+        k_a={"value": x[np.argmax(np.gradient(y))], "min": 0},
+        k_i={"value": x[np.argmin(np.gradient(y))], "min": 0},
+        # possibly could estimate this better in future?
+        h_a={
+            "value": 1,
+            "min": 0,
+        },
+        h_i={
+            "value": 1,
+            "min": 0,
+        },
+    )
     result = model.fit(y, params=params, x=x)
 
     x_plt = np.linspace(x[0], x[-1])
     y_plt = result.eval(x=x_plt)
     y_err = result.eval_uncertainty(x=x_plt)
 
-    return fit_result(result, x_unit, y_unit), {'x_plt': x_plt, 'y_plt': y_plt, 'y_err': y_err}
+    return fit_result(result, x_unit, y_unit), {
+        "x_plt": x_plt,
+        "y_plt": y_plt,
+        "y_err": y_err,
+    }
+
 
 def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
@@ -171,19 +197,20 @@ def validate_data(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]
     valid = np.isfinite(x) & np.isfinite(y)
     x = x[valid]
     y = y[valid]
-    
+
     if x.size < 4:
         raise ValueError("At least four finite data points are required for a Hill fit")
     if np.any(x < 0):
         raise ValueError("Hill fitting requires non-negative x values")
     if np.unique(x).size < 4:
         raise ValueError("At least four distinct x values are required for a Hill fit")
-    
+
     positive_x = x[x > 0]
     if positive_x.size == 0:
         raise ValueError("At least one x value must be greater than zero")
 
     return (x, y)
+
 
 def _parameter_unit(name: str, x_unit: str | None, y_unit: str | None) -> str:
     if name in Y_UNIT_PARAMETERS:
@@ -199,8 +226,11 @@ def fit_result(
     y_unit: str | None = None,
 ):
 
-    parameter_names = list(lmfit_result.params.keys()) + ['r_sq', 'red_chi_sq']
-    vals = [i.value for i in lmfit_result.params.values()] + [lmfit_result.rsquared, lmfit_result.redchi]
+    parameter_names = list(lmfit_result.params.keys()) + ["r_sq", "red_chi_sq"]
+    vals = [i.value for i in lmfit_result.params.values()] + [
+        lmfit_result.rsquared,
+        lmfit_result.redchi,
+    ]
     errs = [i.stderr for i in lmfit_result.params.values()] + [np.nan, np.nan]
     units = [_parameter_unit(name, x_unit, y_unit) for name in parameter_names]
 
@@ -214,10 +244,12 @@ def fit_result(
     result = Table.from_numpy(
         domain,
         np.column_stack((vals, errs)),
-        metas=np.column_stack((
-            np.asarray(parameter_names, dtype=object),
-            np.asarray(units, dtype=object),
-        )),
+        metas=np.column_stack(
+            (
+                np.asarray(parameter_names, dtype=object),
+                np.asarray(units, dtype=object),
+            )
+        ),
     )
     result.name = "Curve fit"
 
@@ -244,7 +276,6 @@ class OWBindingPlot(OWWidget):
     line_width = Setting(2.0)
     fitter_function = Setting(0)
     fit_model = Setting("Hill model (3 variable)")
-
 
     class Error(OWWidget.Error):
         no_continuous_data = Msg("Input contains no continuous variables.")
@@ -313,34 +344,36 @@ class OWBindingPlot(OWWidget):
         self.fit_model_dict = {
             0: {
                 "text": "Hill model (3 variable)",
-                "function": hill_equation, 
-                "fitter": fit_hill, 
-                "equation": "y = v_max * (x**n / (K_half**n + x**n))"
-                },
+                "function": hill_equation,
+                "fitter": fit_hill,
+                "equation": "y = v_max * (x**n / (K_half**n + x**n))",
+            },
             1: {
                 "text": "Hill model (4 variable)",
                 "function": hill1_equation,
                 "fitter": fit_hill1,
-                "equation": "y = bottom + (top - bottom) * (x**n / (K_half**n + x**n))"
-                },
-            2: {    
+                "equation": "y = bottom + (top - bottom) * (x**n / (K_half**n + x**n))",
+            },
+            2: {
                 "text": "BiHill model",
                 "function": bihill_equation,
                 "fitter": fit_bihill,
-                "equation": "y = p_m / ((1 + ((k_a/x)^h_a))*(1 + ((x/k_i)^h_i)))"
-                }
-                }
+                "equation": "y = p_m / ((1 + ((k_a/x)^h_a))*(1 + ((x/k_i)^h_i)))",
+            },
+        }
         self.fit_model_list = tuple(i["text"] for i in self.fit_model_dict.values())
         # need to initialise these here otherwise get mixed up in class, possibly
-        self.fit_model_func = self.fit_model_dict.get(self.fitter_function).get("function")
-        self.fit_model_fitter = self.fit_model_dict.get(self.fitter_function).get("fitter")
-        self.equation_str = self.fit_model_dict.get(self.fitter_function).get("equation")
-
-        self.equation = gui.label(
-            fit_box,
-            self,
-            f"{self.equation_str}"
+        self.fit_model_func = self.fit_model_dict.get(self.fitter_function).get(
+            "function"
         )
+        self.fit_model_fitter = self.fit_model_dict.get(self.fitter_function).get(
+            "fitter"
+        )
+        self.equation_str = self.fit_model_dict.get(self.fitter_function).get(
+            "equation"
+        )
+
+        self.equation = gui.label(fit_box, self, f"{self.equation_str}")
         self.equation.setWordWrap(True)
 
         gui.comboBox(
@@ -414,11 +447,15 @@ class OWBindingPlot(OWWidget):
         self._redraw()
 
     def _update_variable_controls(self) -> None:
-        names = [] if self.data is None else [
-            variable.name
-            for variable in self.data.domain.attributes
-            if isinstance(variable, ContinuousVariable)
-        ]
+        names = (
+            []
+            if self.data is None
+            else [
+                variable.name
+                for variable in self.data.domain.attributes
+                if isinstance(variable, ContinuousVariable)
+            ]
+        )
         self.variable_names = names
 
         x_selected = self._preferred_variable(self.x_variable, DEFAULT_X, names)
@@ -474,7 +511,8 @@ class OWBindingPlot(OWWidget):
             raise ValueError("Select valid x and y variables") from exc
 
         if not isinstance(x_variable, ContinuousVariable) or not isinstance(
-            y_variable, ContinuousVariable):
+            y_variable, ContinuousVariable
+        ):
             # ValueError on purpose: callers treat every bad selection alike.
             raise ValueError("The selected x and y variables must be continuous")  # noqa: TRY004
 
@@ -484,7 +522,9 @@ class OWBindingPlot(OWWidget):
         # important for lmfit to ensure the values are sorted beforehand
         return (
             _x[np.argsort(_x)],
-            _y[np.argsort(_x)]#*1e6 # TODO: clear up this unit business, struggles to fit at natural intensity
+            _y[
+                np.argsort(_x)
+            ],  # *1e6 # TODO: clear up this unit business, struggles to fit at natural intensity
         )
 
     def _redraw(self) -> None:

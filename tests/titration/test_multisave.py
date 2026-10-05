@@ -41,7 +41,11 @@ class TestSheetNames:
         assert make_unique_sheet_names(["a", "b"]) == ["a", "b"]
 
     def test_duplicates_ignoring_case(self):
-        assert make_unique_sheet_names(["Data", "data", "DATA"]) == ["Data", "data (1)", "DATA (2)"]
+        assert make_unique_sheet_names(["Data", "data", "DATA"]) == [
+            "Data",
+            "data (1)",
+            "DATA (2)",
+        ]
 
     def test_invalid_characters_are_replaced(self):
         assert make_unique_sheet_names(["a/b\\c*d?e[f]g:h"]) == ["a_b_c_d_e_f_g_h"]
@@ -67,7 +71,9 @@ class TestTableToDataframe:
         assert frame["cls"].tolist() == [0.0, 1.0]
 
     def test_attributes_only(self):
-        table = Table.from_numpy(Domain([ContinuousVariable("a")]), np.array([[1.0], [2.0]]))
+        table = Table.from_numpy(
+            Domain([ContinuousVariable("a")]), np.array([[1.0], [2.0]])
+        )
         assert list(table_to_dataframe(table).columns) == ["a"]
 
 
@@ -86,7 +92,10 @@ class TestWidget(orange_tests.WidgetTest):
     def test_inputs_become_sheets_named_after_tables(self):
         self.send(small_table("first"), 0)
         self.send(small_table("second"), 1)
-        assert [item["sheet_name"] for item in self.widget.model.items] == ["first", "second"]
+        assert [item["sheet_name"] for item in self.widget.model.items] == [
+            "first",
+            "second",
+        ]
 
     def test_default_sheet_name_when_table_unnamed(self):
         table = small_table()
@@ -98,7 +107,12 @@ class TestWidget(orange_tests.WidgetTest):
         self.send(small_table("first"), 0)
         self.send(small_table("changed", 10), 0)
         assert self.widget.model.items[0]["table"].X[0, 0] == 11.0
-        self.send_signal(self.widget.Inputs.data, self.widget.Inputs.data.closing_sentinel, 0, widget=self.widget)
+        self.send_signal(
+            self.widget.Inputs.data,
+            self.widget.Inputs.data.closing_sentinel,
+            0,
+            widget=self.widget,
+        )
         assert self.widget.model.items == []
 
     def test_sheet_name_is_editable(self):
@@ -106,7 +120,9 @@ class TestWidget(orange_tests.WidgetTest):
         index = self.widget.model.index(0, 1)
         assert self.widget.model.setData(index, "renamed", owmultisave.Qt.EditRole)
         assert self.widget.model.data(index, owmultisave.Qt.DisplayRole) == "renamed"
-        assert not self.widget.model.setData(self.widget.model.index(0, 0), "x", owmultisave.Qt.EditRole)
+        assert not self.widget.model.setData(
+            self.widget.model.index(0, 0), "x", owmultisave.Qt.EditRole
+        )
 
     def test_save_workbook(self):
         path = self.tmp_path / "book"

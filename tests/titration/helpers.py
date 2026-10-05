@@ -16,8 +16,14 @@ def write_csv(path, values, wavelengths=WAVELENGTHS):
     return str(path)
 
 
-def spectra_table(names, X, units=None, wavelengths=(230.0, 240.0, 250.0, 260.0),
-                  spectrum_unit="millidegree", wavelength_unit="nanometer"):
+def spectra_table(
+    names,
+    X,
+    units=None,
+    wavelengths=(230.0, 240.0, 250.0, 260.0),
+    spectrum_unit="millidegree",
+    wavelength_unit="nanometer",
+):
     """A spectra-as-rows table; ``units`` adds a per-row ``Unit`` meta."""
     metas = [StringVariable("Spectrum")]
     columns = [np.asarray(names, dtype=object)]

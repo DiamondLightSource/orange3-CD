@@ -22,7 +22,9 @@ X = np.array([0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0])
 
 
 def parameters(table):
-    return dict(zip(table.metas[:, 0], table.X[:, 0])), dict(zip(table.metas[:, 0], table.metas[:, 1]))
+    return dict(zip(table.metas[:, 0], table.X[:, 0])), dict(
+        zip(table.metas[:, 0], table.metas[:, 1])
+    )
 
 
 class TestEquations:
@@ -38,7 +40,9 @@ class TestEquations:
         y = hill1_equation(np.array([1e-9, 1e9]), 2.0, 8.0, 5.0, 1.0)
         assert y[0] == pytest.approx(2.0)
         assert y[1] == pytest.approx(8.0)
-        assert hill1_equation(np.array([5.0]), 2.0, 8.0, 5.0, 3.0)[0] == pytest.approx(5.0)
+        assert hill1_equation(np.array([5.0]), 2.0, 8.0, 5.0, 3.0)[0] == pytest.approx(
+            5.0
+        )
 
     def test_bihill_peaks_between_constants(self):
         x = np.logspace(-2, 3, 200)
@@ -114,7 +118,10 @@ class TestFitting:
     def test_fit_result_table_layout(self):
         result, _ = fit_hill(X, hill_equation(X, 10.0, 2.0, 1.0))
         assert result.name == "Curve fit"
-        assert [v.name for v in result.domain.attributes] == ["Estimate", "Standard Error"]
+        assert [v.name for v in result.domain.attributes] == [
+            "Estimate",
+            "Standard Error",
+        ]
         assert [v.name for v in result.domain.metas] == ["Parameter", "Unit"]
         assert list(result.metas[:, 0])[-2:] == ["r_sq", "red_chi_sq"]
 
@@ -126,8 +133,11 @@ def binding_table(y=None, wavelength=None, n=7, with_units=True):
     titration_point = np.linspace(0, 3, n)
     y = hill_equation(titration_point, 10.0, 1.0, 1.0) if y is None else y
     domain = Domain(
-        [ContinuousVariable("Titration point"), ContinuousVariable("Delta A"),
-         ContinuousVariable("CD")],
+        [
+            ContinuousVariable("Titration point"),
+            ContinuousVariable("Delta A"),
+            ContinuousVariable("CD"),
+        ],
         metas=[StringVariable("Sample")],
     )
     if with_units:
@@ -166,7 +176,8 @@ class TestWidget(orange_tests.WidgetTest):
 
     def test_no_continuous_data(self):
         table = Table.from_numpy(
-            Domain([], metas=[StringVariable("m")]), np.zeros((3, 0)),
+            Domain([], metas=[StringVariable("m")]),
+            np.zeros((3, 0)),
             metas=np.array([["a"], ["b"], ["c"]], dtype=object),
         )
         self.send(table)

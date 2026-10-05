@@ -40,10 +40,12 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
     def run_pipeline(self):
         import pathlib
         import tempfile
+
         with tempfile.TemporaryDirectory() as d:
             loaded = self.load(pathlib.Path(d))
         # Stand-in for Quasar preprocessing: a transform keeps metas/attributes.
         from orangecontrib.spectroscopy.preprocess import Cut
+
         loaded = Cut(lowlim=225, highlim=265)(loaded)
 
         delta = self.widget
@@ -62,8 +64,12 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         self.assertFalse(delta.Error.active)
         self.assertEqual(
             spectrum_names(out)[:4],
-            ["Background | sol_A", "1.csv | raw_data", "2.csv | raw_data",
-             "3.csv | raw_data"],
+            [
+                "Background | sol_A",
+                "1.csv | raw_data",
+                "2.csv | raw_data",
+                "3.csv | raw_data",
+            ],
         )
         units = spectrum_units(out)
         self.assertEqual(units[:4], ["millidegree"] * 4)
@@ -108,7 +114,8 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
 
     def test_foreign_table_shows_error_not_crash(self):
         for widget_class, signal in (
-            (OWDeltaEpsilon, "data"), (OWBindingData, "spectra"),
+            (OWDeltaEpsilon, "data"),
+            (OWBindingData, "spectra"),
             (OWCDSpectraPlot, "data"),
         ):
             widget = self.create_widget(widget_class)

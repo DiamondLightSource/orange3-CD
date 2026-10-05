@@ -15,12 +15,14 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
 
 NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data", "c | raw_data"]
 # columns are 230, 240, 250, 260 nm
-CD = np.array([
-    [0.0, 0.0, -5.0, 0.0],
-    [1.0, 1.0, -10.0, 1.0],
-    [2.0, 2.0, -15.0, 2.0],
-    [3.0, 3.0, -20.0, 3.0],
-])
+CD = np.array(
+    [
+        [0.0, 0.0, -5.0, 0.0],
+        [1.0, 1.0, -10.0, 1.0],
+        [2.0, 2.0, -15.0, 2.0],
+        [3.0, 3.0, -20.0, 3.0],
+    ]
+)
 RATIOS = [0.5, 1.0, 1.5]
 CONC_M = 15e-6
 
@@ -44,7 +46,8 @@ class TestBindingData(orange_tests.WidgetTest):
             widget=self.widget,
         )
         self.send_signal(
-            self.widget.Inputs.spectra, spectra() if table is None else table,
+            self.widget.Inputs.spectra,
+            spectra() if table is None else table,
             widget=self.widget,
         )
         return self.get_output(self.widget.Outputs.data, widget=self.widget)
@@ -63,9 +66,12 @@ class TestBindingData(orange_tests.WidgetTest):
         titration_point = np.array([0, *RATIOS])
         np.testing.assert_allclose(self.column(out, "Titration point"), titration_point)
         np.testing.assert_allclose(
-            self.column(out, "Binding Stoichiometry"), titration_point / (titration_point + 1)
+            self.column(out, "Binding Stoichiometry"),
+            titration_point / (titration_point + 1),
         )
-        np.testing.assert_allclose(self.column(out, "Conc [B]"), titration_point * CONC_M)
+        np.testing.assert_allclose(
+            self.column(out, "Conc [B]"), titration_point * CONC_M
+        )
         assert list(out.metas[:, 0]) == NAMES
 
     def test_signed_change(self):
@@ -85,10 +91,13 @@ class TestBindingData(orange_tests.WidgetTest):
 
     def test_degree_input_gives_same_physics(self):
         table = spectra_table(NAMES, CD * 1e-3, spectrum_unit="degree")
-        table.attributes.update({
-            key: value for key, value in spectra().attributes.items()
-            if key in (CONCENTRATION_KEY, PATHLENGTH_KEY)
-        })
+        table.attributes.update(
+            {
+                key: value
+                for key, value in spectra().attributes.items()
+                if key in (CONCENTRATION_KEY, PATHLENGTH_KEY)
+            }
+        )
         out = self.run_widget(table)
         assert out.domain["CD"].attributes["unit"] == "degree"
         np.testing.assert_allclose(self.column(out, "CD"), CD[:, 2] * 1e-3)
@@ -102,10 +111,13 @@ class TestBindingData(orange_tests.WidgetTest):
         X = CD.copy()
         X[1] *= 1e-3  # "a" given in degrees
         table = spectra_table(NAMES, X, units=units, spectrum_unit=None)
-        table.attributes.update({
-            key: value for key, value in spectra().attributes.items()
-            if key in (CONCENTRATION_KEY, PATHLENGTH_KEY)
-        })
+        table.attributes.update(
+            {
+                key: value
+                for key, value in spectra().attributes.items()
+                if key in (CONCENTRATION_KEY, PATHLENGTH_KEY)
+            }
+        )
         out = self.run_widget(table)
         np.testing.assert_allclose(self.column(out, "CD"), [-5, -10, -15, -20])
         assert out.domain["CD"].attributes["unit"] == "millidegree"
@@ -114,7 +126,10 @@ class TestBindingData(orange_tests.WidgetTest):
         out = self.run_widget()
         assert out.attributes["absolute_change"] is True
         assert out.attributes["data_series"] == "raw_data"
-        assert table_quantity(out, MEASUREMENT_WAVELENGTH_KEY).to("nanometer").magnitude == 250
+        assert (
+            table_quantity(out, MEASUREMENT_WAVELENGTH_KEY).to("nanometer").magnitude
+            == 250
+        )
         assert table_quantity(out, CONCENTRATION_KEY).to("micromolar").magnitude == 15
         assert out.name == "Binding and Origin data at 250 nm"
 
@@ -145,7 +160,9 @@ class TestBindingData(orange_tests.WidgetTest):
         assert self.widget.wavelength_spin.suffix() == " nm"
 
     def test_plot_axis_without_units(self):
-        self.run_widget(spectra_table(NAMES, CD, wavelength_unit=None, spectrum_unit=None))
+        self.run_widget(
+            spectra_table(NAMES, CD, wavelength_unit=None, spectrum_unit=None)
+        )
         assert self.widget.wavelength_spin.suffix() == ""
 
     def test_series_controls_and_changes(self):
@@ -230,5 +247,7 @@ class TestBindingData(orange_tests.WidgetTest):
     def test_errors_clear_on_recovery(self):
         self.run_widget(titration=Table("iris"))
         assert self.widget.Error.missing_ratios.is_shown()
-        self.send_signal(self.widget.Inputs.titration, titration_table(RATIOS), widget=self.widget)
+        self.send_signal(
+            self.widget.Inputs.titration, titration_table(RATIOS), widget=self.widget
+        )
         assert not self.widget.Error.active

@@ -40,7 +40,10 @@ class TestNormaliseSetting:
     choices = ("A", "B")
 
     def test_index_to_text(self):
-        assert OWCDSpectraPlot._normalise_combo_setting(1, self.choices, default="A") == "B"
+        assert (
+            OWCDSpectraPlot._normalise_combo_setting(1, self.choices, default="A")
+            == "B"
+        )
 
     def test_bad_index_and_value(self):
         normalise = OWCDSpectraPlot._normalise_combo_setting
@@ -64,7 +67,12 @@ class TestWidget(orange_tests.WidgetTest):
 
     def test_stages_sorted_with_all_first(self):
         self.send(spectra_table(NAMES, X))
-        assert self.widget.processing_stages == ["All spectra", "plus_sol_A", "raw_data", "sol_A"]
+        assert self.widget.processing_stages == [
+            "All spectra",
+            "plus_sol_A",
+            "raw_data",
+            "sol_A",
+        ]
 
     def test_all_spectra_selected_and_plotted(self):
         self.send(spectra_table(NAMES, X))

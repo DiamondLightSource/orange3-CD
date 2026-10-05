@@ -29,14 +29,14 @@ from .utils import (
 )
 
 COLOUR_SCALES = {
-    "Viridis":      ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
-    "Plasma":       ("#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"),
-    "Inferno":      ("#000004", "#420a68", "#932667", "#dd513a", "#fca50a", "#fcffa4"),
-    "Cividis":      ("#00224e", "#31446b", "#666970", "#a38f63", "#e6c75a", "#fee838"),
-    "Blue to red":  ("#2166ac", "#67a9cf", "#d1e5f0", "#fddbc7", "#ef8a62", "#b2182b"),
-    "Greyscale":    ("#111111", "#555555", "#999999", "#dddddd"),
-    "Classic":      ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b")
-    }
+    "Viridis": ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
+    "Plasma": ("#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"),
+    "Inferno": ("#000004", "#420a68", "#932667", "#dd513a", "#fca50a", "#fcffa4"),
+    "Cividis": ("#00224e", "#31446b", "#666970", "#a38f63", "#e6c75a", "#fee838"),
+    "Blue to red": ("#2166ac", "#67a9cf", "#d1e5f0", "#fddbc7", "#ef8a62", "#b2182b"),
+    "Greyscale": ("#111111", "#555555", "#999999", "#dddddd"),
+    "Classic": ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"),
+}
 
 
 def colours_from_scale(scale_name: str, count: int) -> list[QColor]:
@@ -85,9 +85,13 @@ class OWCDSpectraPlot(OWWidget):
         data = Input("CD Data", Table)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg("The input table does not contain a 'Spectrum' string meta naming the rows.")
+        missing_wavelength = Msg(
+            "The input table does not contain a 'Spectrum' string meta naming the rows."
+        )
         no_numeric_spectra = Msg("The input table contains no continuous spectra.")
-        invalid_wavelength = Msg("The input attribute names are not all valid wavelengths.")
+        invalid_wavelength = Msg(
+            "The input attribute names are not all valid wavelengths."
+        )
 
     def __init__(self) -> None:
         super().__init__()
@@ -106,7 +110,7 @@ class OWCDSpectraPlot(OWWidget):
         self._row_map: list[int] = []
         self._build_controls()
         self._build_plot()
-        
+
     def _build_controls(self) -> None:
         options = gui.widgetBox(self.controlArea, "Plot options")
 
@@ -199,7 +203,7 @@ class OWCDSpectraPlot(OWWidget):
             return value
 
         return default
-        
+
     def _build_plot(self) -> None:
         pg.setConfigOption("background", "w")
         pg.setConfigOption("foreground", "k")
@@ -249,7 +253,7 @@ class OWCDSpectraPlot(OWWidget):
         else:
             self.selected_stage = stages[0]
             self.stage_combo.setCurrentIndex(0)
-        
+
     def _stage_changed(self) -> None:
         self._populate_spectra()
         self._replot()
@@ -326,8 +330,7 @@ class OWCDSpectraPlot(OWWidget):
             return
 
         selected = [
-            index for index in self.selected_spectra
-            if 0 <= index < len(self._row_map)
+            index for index in self.selected_spectra if 0 <= index < len(self._row_map)
         ]
         if not selected:
             if not self.spectra_names:

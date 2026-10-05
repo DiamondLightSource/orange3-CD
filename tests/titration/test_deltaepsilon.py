@@ -21,7 +21,9 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
 )
 
 NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data"]
-CD = np.array([[-5.0, -5.0, -5.0, -5.0], [-10.0, -20.0, -30.0, -40.0], [-1.0, 2.0, 3.0, 4.0]])
+CD = np.array(
+    [[-5.0, -5.0, -5.0, -5.0], [-10.0, -20.0, -30.0, -40.0], [-1.0, 2.0, 3.0, 4.0]]
+)
 CONC = 15.0  # uM
 
 
@@ -47,8 +49,12 @@ class TestCalculation:
         assert result.units == Q_(1, DELTA_EPSILON_UNIT).units
 
     def test_degree_equals_millidegree(self):
-        in_degree = calculate_delta_epsilon(**self.args(cd=Q_(np.array([0.01, -0.02]), "degree")))
-        np.testing.assert_allclose(in_degree.magnitude, expected(np.array([10.0, -20.0])))
+        in_degree = calculate_delta_epsilon(
+            **self.args(cd=Q_(np.array([0.01, -0.02]), "degree"))
+        )
+        np.testing.assert_allclose(
+            in_degree.magnitude, expected(np.array([10.0, -20.0]))
+        )
 
     def test_other_units_are_converted(self):
         result = calculate_delta_epsilon(
@@ -98,7 +104,10 @@ class TestWidget(orange_tests.WidgetTest):
             "a | raw_data_delta_epsilon",
             "b | raw_data_delta_epsilon",
         ]
-        assert spectrum_units(out) == ["millidegree"] * 3 + [unit_string(DELTA_EPSILON_UNIT)] * 3
+        assert (
+            spectrum_units(out)
+            == ["millidegree"] * 3 + [unit_string(DELTA_EPSILON_UNIT)] * 3
+        )
         np.testing.assert_allclose(out.X[:3], CD)
         np.testing.assert_allclose(out.X[3:], expected(CD))
 
@@ -134,7 +143,9 @@ class TestWidget(orange_tests.WidgetTest):
         self.widget.solution_a_molecular_weight = 2.0
         self.widget.commit.now()
         out = self.get_output(self.widget.Outputs.data, widget=self.widget)
-        np.testing.assert_allclose(out.X[3:], expected(CD, pathlength=2.0, mrw=226.0, mw_a=2.0))
+        np.testing.assert_allclose(
+            out.X[3:], expected(CD, pathlength=2.0, mrw=226.0, mw_a=2.0)
+        )
 
     def test_degree_rows(self):
         table = spectra_table(NAMES, CD * 1e-3, spectrum_unit="degree")
@@ -153,7 +164,9 @@ class TestWidget(orange_tests.WidgetTest):
         assert self.get_output(self.widget.Outputs.data, widget=self.widget) is None
 
     def test_without_titration_warns(self):
-        self.send_signal(self.widget.Inputs.data, spectra_table(NAMES, CD), widget=self.widget)
+        self.send_signal(
+            self.widget.Inputs.data, spectra_table(NAMES, CD), widget=self.widget
+        )
         assert self.widget.Warning.no_titration.is_shown()
         assert self.get_output(self.widget.Outputs.data, widget=self.widget) is None
 
@@ -182,8 +195,11 @@ class TestWidget(orange_tests.WidgetTest):
     def test_stored_invalid_parameters_are_reset(self):
         widget = self.create_widget(
             OWDeltaEpsilon,
-            stored_settings={"pathlength_cm": -3, "mean_residue_molecular_weight": "x",
-                                 "solution_a_molecular_weight": 0},
+            stored_settings={
+                "pathlength_cm": -3,
+                "mean_residue_molecular_weight": "x",
+                "solution_a_molecular_weight": 0,
+            },
         )
         assert widget.pathlength_cm == 1.0
         assert widget.mean_residue_molecular_weight == 113.0

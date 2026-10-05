@@ -30,11 +30,13 @@ def instrument_order(values):
 
 
 def titration(dilution, ratio, concentration=15.0):
-    domain = Domain([
-        ContinuousVariable("dilution_factor"),
-        ContinuousVariable("normalised_molar_ratio"),
-        ContinuousVariable("working_concentration_a"),
-    ])
+    domain = Domain(
+        [
+            ContinuousVariable("dilution_factor"),
+            ContinuousVariable("normalised_molar_ratio"),
+            ContinuousVariable("working_concentration_a"),
+        ]
+    )
     domain.attributes[2].attributes["unit"] = "micromolar"
     return Table.from_numpy(
         domain,
@@ -56,12 +58,19 @@ class CorrectionFixture:
     def load(self, directory, with_sol_b=True):
         widget = self.create_widget(OWCDDataLoader)
         d = pathlib.Path(directory)
-        widget.buffer_file = write_csv(d / "buffer.csv", instrument_order(REFERENCES["buffer"]))
-        widget.solution_a_file = write_csv(d / "a.csv", instrument_order(REFERENCES["sol_A"]))
+        widget.buffer_file = write_csv(
+            d / "buffer.csv", instrument_order(REFERENCES["buffer"])
+        )
+        widget.solution_a_file = write_csv(
+            d / "a.csv", instrument_order(REFERENCES["sol_A"])
+        )
         if with_sol_b:
-            widget.solution_b_file = write_csv(d / "b.csv", instrument_order(REFERENCES["sol_B"]))
+            widget.solution_b_file = write_csv(
+                d / "b.csv", instrument_order(REFERENCES["sol_B"])
+            )
         widget.data_files = [
-            write_csv(d / f"{i}.csv", instrument_order(raw)) for i, raw in enumerate(RAW, 1)
+            write_csv(d / f"{i}.csv", instrument_order(raw))
+            for i, raw in enumerate(RAW, 1)
         ]
         widget._refresh_file_list()
         widget._load_and_plot_raw_data()
@@ -89,15 +98,23 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
 
         buffer, sol_a, sol_b = (REFERENCES[k] for k in ("buffer", "sol_A", "sol_B"))
         a_bs, b_bs = sol_a - buffer, sol_b - buffer
-        np.testing.assert_allclose(by_name["Background | sol_A_buffer_subtracted"], a_bs)
-        np.testing.assert_allclose(by_name["Background | sol_B_buffer_subtracted"], b_bs)
+        np.testing.assert_allclose(
+            by_name["Background | sol_A_buffer_subtracted"], a_bs
+        )
+        np.testing.assert_allclose(
+            by_name["Background | sol_B_buffer_subtracted"], b_bs
+        )
         for i, raw in enumerate(RAW):
             name = f"{i + 1}.csv"
             buffer_sub = (raw - buffer) * DILUTION[i]
             sol_a_sub = buffer_sub - a_bs
             frac = sol_a_sub - b_bs * RATIO[i]
-            np.testing.assert_allclose(by_name[f"{name} | buffer_subtraction"], buffer_sub)
-            np.testing.assert_allclose(by_name[f"{name} | sol_A_subtraction"], sol_a_sub)
+            np.testing.assert_allclose(
+                by_name[f"{name} | buffer_subtraction"], buffer_sub
+            )
+            np.testing.assert_allclose(
+                by_name[f"{name} | sol_A_subtraction"], sol_a_sub
+            )
             np.testing.assert_allclose(by_name[f"{name} | subtract_frac_sol_B"], frac)
             np.testing.assert_allclose(by_name[f"{name} | plus_sol_A"], frac + a_bs)
             # inputs are retained untouched
@@ -114,6 +131,7 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         x = loaded.X.copy()
         x[row] *= 1e-3
         from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
+
         units = ["millidegree"] * len(names)
         units[row] = "degree"
         table = build_spectra_table(loaded, x, names, units)
@@ -141,7 +159,9 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         self.send_signal(widget.Inputs.data, loaded, widget=widget)
         self.assertTrue(widget.Warning.no_titration.is_shown())
         self.assertIsNone(self.get_output(widget.Outputs.data, widget=widget))
-        self.send_signal(widget.Inputs.titration, titration(DILUTION[:2], RATIO[:2]), widget=widget)
+        self.send_signal(
+            widget.Inputs.titration, titration(DILUTION[:2], RATIO[:2]), widget=widget
+        )
         self.assertTrue(widget.Error.invalid_titration.is_shown())
         self.send_signal(widget.Inputs.titration, Table("iris"), widget=widget)
         self.assertTrue(widget.Error.invalid_titration.is_shown())
@@ -164,7 +184,9 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
             by_name["2.csv | buffer_subtraction"], RAW[1] - REFERENCES["buffer"]
         )
         # a titration table with the column clears the warning
-        self.send_signal(widget.Inputs.titration, titration(DILUTION, RATIO), widget=widget)
+        self.send_signal(
+            widget.Inputs.titration, titration(DILUTION, RATIO), widget=widget
+        )
         self.assertFalse(widget.Warning.no_dilution_factor.is_shown())
 
     def test_missing_background(self):
@@ -202,8 +224,12 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
 
 def test_correct_spectra_without_sol_b():
     result = correct_spectra(
-        np.array([[3.0, 4.0]]), np.array([1.0, 1.0]), np.array([2.0, 2.0]),
-        None, np.array([2.0]), np.array([0.5]),
+        np.array([[3.0, 4.0]]),
+        np.array([1.0, 1.0]),
+        np.array([2.0, 2.0]),
+        None,
+        np.array([2.0]),
+        np.array([0.5]),
     )
     np.testing.assert_allclose(result["buffer_subtraction"], [[4.0, 6.0]])
     np.testing.assert_allclose(result["plus_sol_A"], [[4.0, 6.0]])

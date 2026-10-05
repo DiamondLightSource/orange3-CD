@@ -54,9 +54,7 @@ def split_series_name(name: str) -> tuple[str, str] | None:
 def spectrum_names(table: Table) -> list[str]:
     """Return the name of every row, in row order."""
     for index, variable in enumerate(table.domain.metas):
-        if variable.name == SPECTRUM_META and isinstance(
-            variable, StringVariable
-        ):
+        if variable.name == SPECTRUM_META and isinstance(variable, StringVariable):
             return [str(value) for value in table.metas[:, index]]
     raise MissingWavelength(SPECTRUM_META)
 
@@ -65,16 +63,12 @@ def wavelengths(table: Table) -> np.ndarray:
     """Return the wavelength axis, read from the attribute names."""
     spectrum_names(table)  # validates the layout
     try:
-        return np.array(
-            [float(variable.name) for variable in table.domain.attributes]
-        )
+        return np.array([float(variable.name) for variable in table.domain.attributes])
     except ValueError as exc:
         raise InvalidWavelength(str(exc)) from exc
 
 
-def matching_spectra(
-    table: Table, stage: str | None = None
-) -> list[tuple[int, str]]:
+def matching_spectra(table: Table, stage: str | None = None) -> list[tuple[int, str]]:
     """Return ``(row, name)`` pairs for spectra of a processing stage.
 
     With ``stage=None`` every spectrum is returned.
@@ -178,9 +172,7 @@ def build_spectra_table(
     through the ``Spectrum`` and ``Unit`` metas.
     """
     spectrum_variable = next(
-        variable
-        for variable in template.domain.metas
-        if variable.name == SPECTRUM_META
+        variable for variable in template.domain.metas if variable.name == SPECTRUM_META
     )
     domain = Domain(
         template.domain.attributes,
@@ -189,9 +181,11 @@ def build_spectra_table(
     return Table.from_numpy(
         domain,
         np.asarray(X, dtype=float),
-        metas=np.column_stack((
-            np.asarray(names, dtype=object),
-            np.asarray(units, dtype=object),
-        )),
+        metas=np.column_stack(
+            (
+                np.asarray(names, dtype=object),
+                np.asarray(units, dtype=object),
+            )
+        ),
         attributes=dict(template.attributes if attributes is None else attributes),
     )

@@ -22,29 +22,17 @@ def table_to_dataframe(table):
     blocks = []
 
     if len(table.domain.attributes):
-
-        columns.extend(
-            var.name
-            for var in table.domain.attributes
-        )
+        columns.extend(var.name for var in table.domain.attributes)
 
         blocks.append(table.X)
 
     if len(table.domain.class_vars):
-
-        columns.extend(
-            var.name
-            for var in table.domain.class_vars
-        )
+        columns.extend(var.name for var in table.domain.class_vars)
 
         blocks.append(table.Y.reshape(len(table), -1))
 
     if len(table.domain.metas):
-
-        columns.extend(
-            var.name
-            for var in table.domain.metas
-        )
+        columns.extend(var.name for var in table.domain.metas)
 
         blocks.append(table.metas)
 
@@ -54,6 +42,7 @@ def table_to_dataframe(table):
         matrix,
         columns=columns,
     )
+
 
 def make_unique_sheet_names(names):
     """
@@ -66,7 +55,6 @@ def make_unique_sheet_names(names):
     result = []
 
     for name in names:
-
         if not name:
             name = "Sheet"
 
@@ -92,10 +80,7 @@ def make_unique_sheet_names(names):
         while candidate.lower() in used:
             suffix = f" ({counter})"
 
-            candidate = (
-                base[: 31 - len(suffix)]
-                + suffix
-            )
+            candidate = base[: 31 - len(suffix)] + suffix
 
             counter += 1
 
@@ -103,6 +88,7 @@ def make_unique_sheet_names(names):
         result.append(candidate)
 
     return result
+
 
 # ----------------------------------------------------------------------
 # Model
@@ -113,7 +99,6 @@ NO_PARENT = QModelIndex()
 
 
 class SheetListModel(QAbstractTableModel):
-
     HEADERS = ("Input", "Sheet Name")
 
     def __init__(self, parent=None):
@@ -147,7 +132,6 @@ class SheetListModel(QAbstractTableModel):
         item = self.items[row]
 
         if role in (Qt.DisplayRole, Qt.EditRole):
-
             if col == 0:
                 return str(row + 1)
 
@@ -167,10 +151,7 @@ class SheetListModel(QAbstractTableModel):
 
     def setData(self, index, value, role):
 
-        if (
-            role == Qt.EditRole
-            and index.column() == 1
-        ):
+        if role == Qt.EditRole and index.column() == 1:
             self.items[index.row()]["sheet_name"] = str(value)
 
             self.dataChanged.emit(index, index)
@@ -181,10 +162,7 @@ class SheetListModel(QAbstractTableModel):
 
     def insert_table(self, position, table):
 
-        default_name = (
-            getattr(table, "name", None)
-            or f"Sheet{position + 1}"
-        )
+        default_name = getattr(table, "name", None) or f"Sheet{position + 1}"
 
         self.beginInsertRows(
             QModelIndex(),
@@ -205,10 +183,7 @@ class SheetListModel(QAbstractTableModel):
     def update_table(self, position, table):
 
         if position >= len(self.items):
-
-            print(
-                "MODEL update -> extending model"
-            )
+            print("MODEL update -> extending model")
 
             self.insert_table(position, table)
             return
@@ -240,12 +215,10 @@ class SheetListModel(QAbstractTableModel):
 # Widget
 # ----------------------------------------------------------------------
 
-class OWMultiSave(OWWidget):
 
+class OWMultiSave(OWWidget):
     name = "Save Workbook"
-    description = (
-        "Save multiple tables to an Excel workbook in different sheets"
-    )
+    description = "Save multiple tables to an Excel workbook in different sheets"
     icon = "icons/SaveWorkbook.svg"
 
     want_main_area = False
@@ -328,7 +301,9 @@ class OWMultiSave(OWWidget):
             filename += ".xlsx"
 
         valid_items = [item for item in self.model.items if item["table"] is not None]
-        sheet_names = make_unique_sheet_names([item["sheet_name"] for item in valid_items])
+        sheet_names = make_unique_sheet_names(
+            [item["sheet_name"] for item in valid_items]
+        )
 
         with pd.ExcelWriter(
             filename,
@@ -343,4 +318,3 @@ class OWMultiSave(OWWidget):
                     sheet_name=sheet_name,
                     index=False,
                 )
-

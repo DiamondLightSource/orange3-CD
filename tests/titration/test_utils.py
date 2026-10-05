@@ -61,7 +61,9 @@ class TestLayout:
             wavelengths(Table("iris"))
 
     def test_meta_must_be_string(self):
-        domain = Domain([ContinuousVariable("1.0")], metas=[ContinuousVariable("Spectrum")])
+        domain = Domain(
+            [ContinuousVariable("1.0")], metas=[ContinuousVariable("Spectrum")]
+        )
         table = Table.from_numpy(domain, np.zeros((1, 1)), metas=np.zeros((1, 1)))
         with pytest.raises(MissingWavelength):
             spectrum_names(table)
@@ -73,7 +75,10 @@ class TestLayout:
 
     def test_matching_spectra(self, table):
         assert matching_spectra(table) == list(enumerate(NAMES))
-        assert matching_spectra(table, "raw_data") == [(1, "a | raw_data"), (2, "b | raw_data")]
+        assert matching_spectra(table, "raw_data") == [
+            (1, "a | raw_data"),
+            (2, "b | raw_data"),
+        ]
         assert matching_spectra(table, "missing") == []
         # the stage must match the whole suffix, not just end the name
         assert matching_spectra(table, "data") == []
@@ -153,5 +158,7 @@ class TestBuildSpectraTable:
         assert out.attributes is not table.attributes
 
     def test_attribute_override(self, table):
-        out = build_spectra_table(table, np.ones((1, 4)), ["x | s"], ["degree"], {"k": 1})
+        out = build_spectra_table(
+            table, np.ones((1, 4)), ["x | s"], ["degree"], {"k": 1}
+        )
         assert dict(out.attributes) == {"k": 1}

@@ -60,8 +60,7 @@ def continuous_column(table: Table, names: tuple[str, ...]) -> np.ndarray | None
 class OWBindingData(OWWidget):
     name = "Binding Data"
     description = (
-        "Construct the Binding data and Origin data columns at a selected "
-        "wavelength."
+        "Construct the Binding data and Origin data columns at a selected wavelength."
     )
     icon = "icons/BindingData.svg"
     priority = 40
@@ -82,15 +81,9 @@ class OWBindingData(OWWidget):
 
     class Error(OWWidget.Error):
         missing_wavelength = Msg("Input has no 'Spectrum' string meta naming the rows.")
-        invalid_wavelength = Msg(
-            "Input attribute names are not all valid wavelengths."
-        )
-        missing_solution_a = Msg(
-            "No Solution A CD feature matching '{}' was found."
-        )
-        missing_data = Msg(
-            "No titration data features matching '{}' were found."
-        )
+        invalid_wavelength = Msg("Input attribute names are not all valid wavelengths.")
+        missing_solution_a = Msg("No Solution A CD feature matching '{}' was found.")
+        missing_data = Msg("No titration data features matching '{}' were found.")
         missing_ratios = Msg("Titration input has no ratio column.")
         missing_conversion_metadata = Msg(
             "The spectra table is missing '{}' conversion metadata."
@@ -141,16 +134,24 @@ class OWBindingData(OWWidget):
             callback=self._wavelength_control_changed,
         )
         self.data_combo = gui.comboBox(
-            box, self, "data_series",
-            label="Titration data series", items=[],
+            box,
+            self,
+            "data_series",
+            label="Titration data series",
+            items=[],
             sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._series_changed,
+            orientation=Qt.Horizontal,
+            callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
-            box, self, "solution_a_series",
-            label="Solution A series", items=[],
+            box,
+            self,
+            "solution_a_series",
+            label="Solution A series",
+            items=[],
             sendSelectedValue=True,
-            orientation=Qt.Horizontal, callback=self._series_changed,
+            orientation=Qt.Horizontal,
+            callback=self._series_changed,
         )
         gui.checkBox(
             box,
@@ -204,7 +205,9 @@ class OWBindingData(OWWidget):
             except SpectraError:
                 pass
         data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
-        solution_a = self._preferred(stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES)
+        solution_a = self._preferred(
+            stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
+        )
         self._updating_series = True
         for combo, selected in (
             (self.data_combo, data_stage),
@@ -224,9 +227,7 @@ class OWBindingData(OWWidget):
         self._updating_series = False
 
     @staticmethod
-    def _preferred(
-        values: list[str], current: str, defaults: tuple[str, ...]
-    ) -> str:
+    def _preferred(values: list[str], current: str, defaults: tuple[str, ...]) -> str:
         if current in values:
             return current
         for default in defaults:
@@ -401,7 +402,8 @@ class OWBindingData(OWWidget):
                 np.asarray(
                     [
                         Q_(float(self.spectra.X[index, row]), unit)
-                        .to(cd_unit).magnitude
+                        .to(cd_unit)
+                        .magnitude
                         for index, unit in zip(variables_idx, units)
                     ]
                 ),
@@ -412,15 +414,12 @@ class OWBindingData(OWWidget):
             cd.to(MDEG_PER_DELTA_A.units)
         except TypeError as exc:
             self.Error.incompatible_units(
-                f"The selected series must be in CD units "
-                f"(e.g. millidegree): {exc}"
+                f"The selected series must be in CD units (e.g. millidegree): {exc}"
             )
             self.Outputs.data.send(None)
             return
 
-        titration_point = np.concatenate(
-            ([0.0], np.asarray(ratios, dtype=float))
-        )
+        titration_point = np.concatenate(([0.0], np.asarray(ratios, dtype=float)))
 
         change = np.zeros_like(cd.magnitude) * cd.units
         if self.absolute_change:
@@ -431,9 +430,7 @@ class OWBindingData(OWWidget):
         delta_a = (change.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to(
             "dimensionless"
         )
-        delta_epsilon = (delta_a / (concentration * pathlength)).to(
-            DELTA_EPSILON_UNIT
-        )
+        delta_epsilon = (delta_a / (concentration * pathlength)).to(DELTA_EPSILON_UNIT)
         binding_stoichiometry = titration_point / (titration_point + 1.0)
 
         # CD Apps Origin data column 1:
@@ -478,9 +475,8 @@ class OWBindingData(OWWidget):
         )
         wavelength_unit = self._wavelength_unit()
         measurement = Q_(self.wavelength, wavelength_unit or "dimensionless")
-        output.name = (
-            f"Binding and Origin data at {self.wavelength:g}"
-            + (f" {unit_symbol(wavelength_unit)}" if wavelength_unit else "")
+        output.name = f"Binding and Origin data at {self.wavelength:g}" + (
+            f" {unit_symbol(wavelength_unit)}" if wavelength_unit else ""
         )
         output.attributes.update(
             {
@@ -491,8 +487,7 @@ class OWBindingData(OWWidget):
                 CONCENTRATION_KEY: quantity_string(concentration),
                 PATHLENGTH_KEY: quantity_string(pathlength),
                 "delta_epsilon_calculation": (
-                    "Delta_A / "
-                    f"({CONCENTRATION_KEY} * {PATHLENGTH_KEY})"
+                    f"Delta_A / ({CONCENTRATION_KEY} * {PATHLENGTH_KEY})"
                 ),
                 "origin_concentration_b_calculation": (
                     f"Titration_point * {CONCENTRATION_KEY}"

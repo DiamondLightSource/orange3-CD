@@ -69,12 +69,14 @@ def correct_spectra(
         sol_b_bs = sol_b - buffer
         result["sol_B_buffer_subtracted"] = sol_b_bs
         subtract_frac_sol_b = sol_a_subtraction - sol_b_bs * ratio[:, None]
-    result.update({
-        "buffer_subtraction": buffer_subtraction,
-        "sol_A_subtraction": sol_a_subtraction,
-        "subtract_frac_sol_B": subtract_frac_sol_b,
-        "plus_sol_A": subtract_frac_sol_b + sol_a_bs,
-    })
+    result.update(
+        {
+            "buffer_subtraction": buffer_subtraction,
+            "sol_A_subtraction": sol_a_subtraction,
+            "subtract_frac_sol_B": subtract_frac_sol_b,
+            "plus_sol_A": subtract_frac_sol_b + sol_a_bs,
+        }
+    )
     return result
 
 
@@ -100,9 +102,7 @@ class OWCDDataCorrection(OWWidget):
         missing_spectrum_meta = Msg(
             "Input does not contain a 'Spectrum' string meta naming the rows."
         )
-        invalid_wavelength = Msg(
-            "Input attribute names are not all valid wavelengths."
-        )
+        invalid_wavelength = Msg("Input attribute names are not all valid wavelengths.")
         missing_background = Msg("Background spectrum '{}' was not found.")
         no_data_spectra = Msg(f"No '{DATA_STAGE}' spectra were found.")
         invalid_titration = Msg("{}")
@@ -189,7 +189,8 @@ class OWCDDataCorrection(OWWidget):
             self.Warning.no_sol_b()
 
         data_rows = [
-            index for index, name in enumerate(names)
+            index
+            for index, name in enumerate(names)
             if not name.startswith(BACKGROUND_PREFIX)
             and (split_series_name(name) or (None, None))[1] == DATA_STAGE
         ]
@@ -268,4 +269,5 @@ class OWCDDataCorrection(OWWidget):
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
+
     WidgetPreview(OWCDDataCorrection).run()
