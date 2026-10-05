@@ -51,4 +51,9 @@ namespaces = true
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+filterwarnings = [
+    # third-party deprecations raised while importing Orange
+    "ignore:chardet.universaldetector is deprecated:DeprecationWarning",
+    "ignore:import .orangecanvas.localization:DeprecationWarning",
+]
 testpaths = ["tests"]

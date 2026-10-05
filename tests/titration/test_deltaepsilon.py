@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from Orange.data import Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 from pint import DimensionalityError
 
 from helpers import spectra_table, titration_table
@@ -78,7 +78,7 @@ class TestCalculation:
             calculate_delta_epsilon(**self.args(cd=Q_(np.array([1.0]), "nanometer")))
 
 
-class TestWidget(WidgetTest):
+class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWDeltaEpsilon)
 
@@ -119,7 +119,9 @@ class TestWidget(WidgetTest):
         assert self.widget.solution_a_series == "sol_A_buffer_subtracted"
 
     def test_saved_series_choice_is_kept(self):
-        self.widget.data_series = "raw_data"
+        self.widget = self.create_widget(
+            OWDeltaEpsilon, stored_settings={"data_series": "raw_data"}
+        )
         names = [*NAMES, "a | plus_sol_A"]
         table = spectra_table(names, np.vstack([CD, CD[1:2]]))
         self.run_widget(table, titration_table([0.5, 1.0]))
@@ -198,13 +200,15 @@ class TestWidget(WidgetTest):
 
     def test_unknown_data_series(self):
         self.run_widget()
-        self.widget.data_series = "nope"
+        with self.assertWarns(UserWarning):  # Orange warns about the stale value
+            self.widget.data_series = "nope"
         self.widget.commit.now()
         assert self.widget.Error.no_data_series.is_shown()
 
     def test_no_solution_a(self):
         self.run_widget()
-        self.widget.solution_a_series = "nope"
+        with self.assertWarns(UserWarning):
+            self.widget.solution_a_series = "nope"
         self.widget.commit.now()
         assert self.widget.Error.no_solution_a_series.is_shown()
 

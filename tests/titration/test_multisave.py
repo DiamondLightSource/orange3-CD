@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from Orange.data import ContinuousVariable, DiscreteVariable, Domain, StringVariable, Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration import owmultisave
 from orangecontrib.orangeCD.widgets.titration.owmultisave import (
@@ -65,7 +65,7 @@ class TestTableToDataframe:
         assert list(table_to_dataframe(table).columns) == ["a"]
 
 
-class TestWidget(WidgetTest):
+class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWMultiSave)
 

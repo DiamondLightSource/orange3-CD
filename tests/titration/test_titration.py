@@ -1,11 +1,14 @@
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owtitration import OWTitrationCalculator
 
 
-class TestTitrationVolumeWarning(WidgetTest):
+class TestTitrationVolumeWarning(orange_tests.WidgetTest):
+    def setUp(self):
+        self.widget = self.create_widget(OWTitrationCalculator)
+
     def make(self, mode, ratios, **settings):
-        widget = self.create_widget(OWTitrationCalculator)
+        widget = self.widget
         widget.mode = mode
         widget.ratios = ratios
         for name, value in settings.items():
@@ -42,9 +45,12 @@ class TestTitrationVolumeWarning(WidgetTest):
         self.assertFalse(widget.Warning.volume_exceeded.is_shown())
 
 
-class TestTitrationOutputColumns(WidgetTest):
+class TestTitrationOutputColumns(orange_tests.WidgetTest):
+    def setUp(self):
+        self.widget = self.create_widget(OWTitrationCalculator)
+
     def output(self, mode, ratios):
-        widget = self.create_widget(OWTitrationCalculator)
+        widget = self.widget
         widget.mode = mode
         widget.ratios = ratios
         widget.calculate()

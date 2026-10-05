@@ -8,6 +8,7 @@ import numpy as np
 from pint import Quantity
 
 from Orange.data import Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -165,14 +166,14 @@ class OWDeltaEpsilon(OWWidget):
         self.data_combo = gui.comboBox(
             series_box, self, "data_series",
             label="Titration data series", items=[],
-            sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._series_changed,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
             series_box, self, "solution_a_series",
             label="Solution A series", items=[],
-            sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._series_changed,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._series_changed,
         )
         note = gui.widgetLabel(
             series_box,
@@ -190,19 +191,19 @@ class OWDeltaEpsilon(OWWidget):
             conversion_box, self, "pathlength_cm", 1e-12, 1e6,
             step=0.1, decimals=6,
             label=f"Pathlength ({self._unit_symbol(PATHLENGTH_UNIT)})",
-            orientation="horizontal", callback=self.commit.deferred,
+            orientation=Qt.Horizontal, callback=self.commit.deferred,
         )
         gui.doubleSpin(
             conversion_box, self, "mean_residue_molecular_weight", 1e-12, 1e6,
             step=1.0, decimals=3,
             label=f"Mean residue molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
-            orientation="horizontal", callback=self.commit.deferred,
+            orientation=Qt.Horizontal, callback=self.commit.deferred,
         )
         gui.doubleSpin(
             conversion_box, self, "solution_a_molecular_weight", 1e-12, 1e12,
             step=100.0, decimals=3,
             label=f"Solution A molecular weight ({self._unit_symbol(MOLECULAR_WEIGHT_UNIT)})",
-            orientation="horizontal", callback=self.commit.deferred,
+            orientation=Qt.Horizontal, callback=self.commit.deferred,
         )
         equation = gui.widgetLabel(
             conversion_box,
@@ -267,7 +268,11 @@ class OWDeltaEpsilon(OWWidget):
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
-        self.data_series, self.solution_a_series = data_stage, solution_a
+        # Assigning to an empty combo makes Orange warn; keep the old value.
+        if data_stage:
+            self.data_series = data_stage
+        if solution_a:
+            self.solution_a_series = solution_a
         self._updating_series = False
 
     @staticmethod

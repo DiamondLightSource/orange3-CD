@@ -1,5 +1,5 @@
 import pytest
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 from pint import Quantity
 
 from orangecontrib.orangeCD.widgets.titration import Q_
@@ -203,7 +203,7 @@ class TestCalculateValidation:
             make_calculator().calculate("sideways", [TitrationPoint(1.0, 1)])
 
 
-class TestCalculatorWidget(WidgetTest):
+class TestCalculatorWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWTitrationCalculator)
 

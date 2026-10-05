@@ -2,7 +2,7 @@
 
 import numpy as np
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
 from orangecontrib.orangeCD.widgets.titration.owbindingplot import OWBindingPlot
@@ -35,32 +35,10 @@ class LoaderFixture:
         return self.get_output(widget.Outputs.data, widget=widget)
 
 
-class TestLoader(LoaderFixture, WidgetTest):
-    def test_output_layout(self, tmp_path=None):
-        import tempfile, pathlib
-        with tempfile.TemporaryDirectory() as d:
-            table = self.load(pathlib.Path(d))
-        self.assertEqual(
-            spectrum_names(table),
-            ["Background | sol_A", "1.csv | raw_data", "2.csv | raw_data",
-             "3.csv | raw_data"],
-        )
-        np.testing.assert_array_equal(wavelengths(table), sorted(WAVELENGTHS))
-        self.assertEqual(table.attributes["wavelength_unit"], "nanometer")
-        self.assertEqual(spectrum_units(table), ["millidegree"] * 4)
+class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
+    def setUp(self):
+        self.widget = self.create_widget(OWDeltaEpsilon)
 
-    def test_no_files_sends_nothing(self):
-        widget = self.create_widget(OWCDDataLoader)
-        self.assertIsNone(self.get_output(widget.Outputs.data, widget=widget))
-
-    def test_bad_file_sets_error(self):
-        widget = self.create_widget(OWCDDataLoader)
-        widget.solution_a_file = "/nonexistent.csv"
-        widget.commit()
-        self.assertTrue(widget.Error.load_failed.is_shown())
-
-
-class TestPipeline(LoaderFixture, WidgetTest):
     def run_pipeline(self):
         import tempfile, pathlib
         with tempfile.TemporaryDirectory() as d:
@@ -69,7 +47,7 @@ class TestPipeline(LoaderFixture, WidgetTest):
         from orangecontrib.spectroscopy.preprocess import Cut
         loaded = Cut(lowlim=225, highlim=265)(loaded)
 
-        delta = self.create_widget(OWDeltaEpsilon)
+        delta = self.widget
         titration = titration_table([0.5, 1.0, 1.5])
         self.send_signal(delta.Inputs.titration, titration, widget=delta)
         self.send_signal(delta.Inputs.data, loaded, widget=delta)

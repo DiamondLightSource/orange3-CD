@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from helpers import WAVELENGTHS, write_csv
 from orangecontrib.orangeCD.widgets.titration.owcddataloader import (
@@ -88,7 +88,7 @@ class TestDataframeToTable:
         assert spectrum_units(table) == ["degree", "degree"]
 
 
-class TestLoaderWidget(WidgetTest):
+class TestLoaderWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWCDDataLoader)
 

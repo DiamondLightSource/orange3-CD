@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pyqtgraph as pg
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -134,20 +135,20 @@ class OWBindingData(OWWidget):
             step=1.0,
             decimals=3,
             label="Measurement wavelength",
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._wavelength_control_changed,
         )
         self.data_combo = gui.comboBox(
             box, self, "data_series",
             label="Titration data series", items=[],
-            sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._series_changed,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._series_changed,
         )
         self.solution_a_combo = gui.comboBox(
             box, self, "solution_a_series",
             label="Solution A series", items=[],
-            sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._series_changed,
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._series_changed,
         )
         gui.checkBox(
             box,
@@ -213,7 +214,11 @@ class OWBindingData(OWWidget):
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
-        self.data_series, self.solution_a_series = data_stage, solution_a
+        # Assigning to an empty combo makes Orange warn; keep the old value.
+        if data_stage:
+            self.data_series = data_stage
+        if solution_a:
+            self.solution_a_series = solution_a
         self._updating_series = False
 
     @staticmethod

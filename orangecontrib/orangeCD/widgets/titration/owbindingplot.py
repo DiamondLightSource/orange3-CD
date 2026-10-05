@@ -11,6 +11,7 @@ from lmfit import Model
 from lmfit.model import ModelResult
 
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -271,8 +272,7 @@ class OWBindingPlot(OWWidget):
             label="X variable",
             items=[],
             sendSelectedValue=True,
-            valueType=str,
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._selection_changed,
         )
         self.y_combo = gui.comboBox(
@@ -282,8 +282,7 @@ class OWBindingPlot(OWWidget):
             label="Y variable",
             items=[],
             sendSelectedValue=True,
-            valueType=str,
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._selection_changed,
         )
         self.x_combo.setMinimumWidth(220)
@@ -297,7 +296,7 @@ class OWBindingPlot(OWWidget):
             2,
             30,
             label="Point size",
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._redraw,
         )
         gui.doubleSpin(
@@ -309,7 +308,7 @@ class OWBindingPlot(OWWidget):
             step=0.1,
             decimals=1,
             label="Fit line width",
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._redraw,
         )
 
@@ -354,8 +353,7 @@ class OWBindingPlot(OWWidget):
             label="Select fit model",
             items=self.fit_model_list,
             sendSelectedValue=False,
-            valueType=int,
-            orientation="horizontal",
+            orientation=Qt.Horizontal,
             callback=self._select_fit_model_changed,
         )
         gui.button(
@@ -442,8 +440,11 @@ class OWBindingPlot(OWWidget):
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
-        self.x_variable = x_selected
-        self.y_variable = y_selected
+        # Assigning to an empty combo makes Orange warn; keep the old value.
+        if x_selected:
+            self.x_variable = x_selected
+        if y_selected:
+            self.y_variable = y_selected
         self._updating_controls = False
 
         if self.data is not None and not names:

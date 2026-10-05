@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from AnyQt.QtGui import QColor
 from Orange.data import Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from helpers import spectra_table
 from orangecontrib.orangeCD.widgets.titration.owcdspectraplot import (
@@ -49,7 +49,7 @@ class TestNormaliseSetting:
         assert normalise("B", self.choices, default="A") == "B"
 
 
-class TestWidget(WidgetTest):
+class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWCDSpectraPlot)
 

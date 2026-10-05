@@ -5,7 +5,7 @@ import tempfile
 
 import numpy as np
 from Orange.data import ContinuousVariable, Domain, Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
 from orangecontrib.orangeCD.widgets.titration.owcddatacorrection import (
@@ -70,13 +70,16 @@ class CorrectionFixture:
         return self.get_output(widget.Outputs.data, widget=widget)
 
     def correct(self, table, titration_table):
-        widget = self.create_widget(OWCDDataCorrection)
+        widget = self.widget
         self.send_signal(widget.Inputs.titration, titration_table, widget=widget)
         self.send_signal(widget.Inputs.data, table, widget=widget)
         return widget, self.get_output(widget.Outputs.data, widget=widget)
 
 
-class TestCorrection(CorrectionFixture, WidgetTest):
+class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
+    def setUp(self):
+        self.widget = self.create_widget(OWCDDataCorrection)
+
     def test_matches_reference_calculation(self):
         with tempfile.TemporaryDirectory() as d:
             loaded = self.load(d)
@@ -135,7 +138,7 @@ class TestCorrection(CorrectionFixture, WidgetTest):
     def test_errors(self):
         with tempfile.TemporaryDirectory() as d:
             loaded = self.load(d)
-        widget = self.create_widget(OWCDDataCorrection)
+        widget = self.widget
         self.send_signal(widget.Inputs.data, loaded, widget=widget)
         self.assertTrue(widget.Warning.no_titration.is_shown())
         self.assertIsNone(self.get_output(widget.Outputs.data, widget=widget))

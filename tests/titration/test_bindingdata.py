@@ -1,6 +1,6 @@
 import numpy as np
 from Orange.data import Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from helpers import spectra_table, titration_table
 from orangecontrib.orangeCD.widgets.titration import Q_
@@ -32,7 +32,7 @@ def spectra(**kwargs):
     return table
 
 
-class TestBindingData(WidgetTest):
+class TestBindingData(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWBindingData)
         self.widget.wavelength = 250.0
@@ -200,13 +200,15 @@ class TestBindingData(WidgetTest):
 
     def test_missing_reference(self):
         self.run_widget()
-        self.widget.solution_a_series = "nope"
+        with self.assertWarns(UserWarning):  # Orange warns about the stale value
+            self.widget.solution_a_series = "nope"
         self.widget.commit()
         assert self.widget.Error.missing_solution_a.is_shown()
 
     def test_missing_data_series(self):
         self.run_widget()
-        self.widget.data_series = "nope"
+        with self.assertWarns(UserWarning):
+            self.widget.data_series = "nope"
         self.widget.commit()
         assert self.widget.Error.missing_data.is_shown()
 

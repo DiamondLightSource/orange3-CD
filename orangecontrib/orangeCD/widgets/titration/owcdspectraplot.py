@@ -9,6 +9,7 @@ import pyqtgraph as pg
 from AnyQt.QtGui import QColor
 from AnyQt.QtWidgets import QAbstractItemView
 from Orange.data import Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
@@ -115,7 +116,7 @@ class OWCDSpectraPlot(OWWidget):
             "selected_stage",
             label="Processing stage",
             items=self.processing_stages,
-            orientation="vertical",
+            orientation=Qt.Vertical,
             sendSelectedValue=True,
             callback=self._stage_changed,
         )
@@ -126,7 +127,7 @@ class OWCDSpectraPlot(OWWidget):
             "colour_scale",
             label="Colour scale",
             items=tuple(COLOUR_SCALES),
-            orientation="vertical",
+            orientation=Qt.Vertical,
             sendSelectedValue=True,
             callback=self._replot,
         )
@@ -141,7 +142,7 @@ class OWCDSpectraPlot(OWWidget):
             label="Line width",
             decimals=1,
             suffix=" px",
-            orientation="vertical",
+            orientation=Qt.Vertical,
             callback=self._replot,
         )
 

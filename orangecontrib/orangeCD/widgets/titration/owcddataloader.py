@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Msg, Output, OWWidget
@@ -207,13 +208,13 @@ class OWCDDataLoader(OWWidget):
         units_box = gui.widgetBox(self.controlArea, "Units of the data files")
         gui.comboBox(
             units_box, self, "wavelength_unit", label="Wavelength:",
-            items=WAVELENGTH_UNITS, sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._units_changed,
+            items=WAVELENGTH_UNITS, sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._units_changed,
         )
         gui.comboBox(
             units_box, self, "cd_unit", label="CD signal:",
-            items=CD_SIGNAL_UNITS, sendSelectedValue=True, valueType=str,
-            orientation="horizontal", callback=self._units_changed,
+            items=CD_SIGNAL_UNITS, sendSelectedValue=True,
+            orientation=Qt.Horizontal, callback=self._units_changed,
         )
         gui.rubber(self.controlArea)
 
@@ -232,7 +233,7 @@ class OWCDDataLoader(OWWidget):
     def _add_reference_selector(self, parent, label: str, setting: str) -> None:
         row = gui.hBox(parent)
         editor = gui.lineEdit(
-            row, self, setting, label=label, orientation="horizontal",
+            row, self, setting, label=label, orientation=Qt.Horizontal,
             callback=self.commit,
         )
         editor.setMinimumWidth(380)

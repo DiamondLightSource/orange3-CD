@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
-from Orange.widgets.tests.base import WidgetTest
+from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owbindingplot import (
     OWBindingPlot,
@@ -143,7 +143,7 @@ def binding_table(y=None, wavelength=None, n=7, with_units=True):
     return table
 
 
-class TestWidget(WidgetTest):
+class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWBindingPlot)
 
@@ -255,6 +255,7 @@ class TestWidget(WidgetTest):
 
     def test_non_continuous_selection_is_invalid(self):
         self.send(binding_table())
-        self.widget.x_variable = "Sample"
+        with self.assertWarns(UserWarning):  # Orange warns about the stale value
+            self.widget.x_variable = "Sample"
         with pytest.raises(ValueError):
             self.widget._xy_data()

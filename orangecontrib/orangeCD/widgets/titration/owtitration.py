@@ -7,6 +7,7 @@ from typing import Sequence
 import pandas as pd
 
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Msg, OWWidget, Output
@@ -641,9 +642,9 @@ class OWTitrationCalculator(OWWidget):
     def _build_controls(self):
         box = gui.widgetBox(self.controlArea, "Titration inputs")
         gui.comboBox(box, self, "_conc_unit", items=self.CONCENTRATION_UNITS, label="Stock solution concentration units:",
-                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
+                     sendSelectedValue=True, callback=self._on_unit_changed)
         gui.comboBox(box, self, "_volume_unit", items=self.VOLUME_UNITS, label="Volume units:",
-                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
+                     sendSelectedValue=True, callback=self._on_unit_changed)
 
         self._unit_labels: list[tuple[gui.QtWidgets.QLabel, str, str]] = []
         for label, value, unit_kind in (
@@ -672,8 +673,8 @@ class OWTitrationCalculator(OWWidget):
         gui.comboBox(
             box, self, "mode", label="Mode",
             items=tuple(item.value for item in TitrationMode),
-            sendSelectedValue=True, valueType=str,
-            callback=self.calculate, orientation="horizontal",
+            sendSelectedValue=True,
+            callback=self.calculate, orientation=Qt.Horizontal,
         )
         note = gui.widgetLabel(box, "Enter comma-separated values for Stock B concentrations and Molar ratios. Concentrations must use consistent units.")
         note.setWordWrap(True)
