@@ -2,13 +2,9 @@
 
 The CD Spectra plot widget can be used to visualise sets of raw or processed spectra. 
 
-It has been principally designed for the output of the [CD Titration Processing](titration_processing.md) widget. 
+It has been principally designed for the output of the [CD Data Loader](cd_data_loader.md) widget, or of spectral preprocessing applied to it.
 
-TODO: in the widget, the PROCESSING_STAGES variable is hard coded. This should really look at the table and determine what stages of processing are available first. Also needs to sensibly include the background spectrum for these data sets.
-
-From the processing stage of the data as described in the documentation for the [CD Titration Processing](./titration_processing.md) widget, subsets of the data can be readily selected and plotted. 
-
-For example, selecting the `plus_sol_A` processing stage will display the final processed spectra of all of the data.
+Spectra are named `sample | stage`. The stages present in the table are read from the table and offered in the "Processing stage" selector, so subsets of the data can be readily selected and plotted. For example, selecting `raw_data` displays all of the titration data files, and `sol_A` the Solution A background spectrum.
 
 Alternatively, groups of files can be interactively selected from the list provided in the "Spectra" window. 
 

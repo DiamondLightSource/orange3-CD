@@ -1,18 +1,46 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Sequence
+from itertools import pairwise
 
 import pandas as pd
-
+from AnyQt.QtCore import Qt
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
-from Orange.widgets.widget import Msg, OWWidget, Output
-
-from . import ureg, Q_
+from Orange.widgets.widget import Msg, Output, OWWidget
 from pint import Quantity
+
+from . import Q_
+from .utils import quantity_string
+
+
+def _round_quantity(quantity: Quantity, unit: str, digits: int) -> Quantity:
+    """Round to ``digits`` decimals of ``unit``, keeping ``quantity``'s units.
+
+    Rounding the bare magnitude would round in whatever unit the user chose,
+    so 21 uL in millilitres would become 0.0.
+    """
+    rounded = Q_(round(float(quantity.to(unit).magnitude), digits), unit)
+    converted = rounded.to(quantity.units)
+    return Q_(round(float(converted.magnitude), 12), quantity.units)
+
+
+def round_volume(volume: Quantity) -> Quantity:
+    """Round a volume to the 0.1 uL pipetting precision."""
+    return _round_quantity(volume, "microliter", 1)
+
+
+def round_concentration(concentration: Quantity) -> Quantity:
+    """Round a concentration to 0.1 uM."""
+    return _round_quantity(concentration, "micromolar", 1)
+
+
+# Default pipetting range used to choose a Stock B solution.
+DEFAULT_TARGET_MIN = Quantity(2.0, "microlitres")
+DEFAULT_TARGET_MAX = Quantity(20.0, "microlitres")
 
 
 class TitrationMode(str, Enum):
@@ -32,7 +60,6 @@ class IncreasingRow:
     ratio: float
     stock_b: int
 
-    predicted_volume: float
     volume_added_this_step: float
     total_stock_b_volume: float
     total_cell_volume: float
@@ -45,11 +72,9 @@ class FixedRow:
     ratio: float
     stock_b: int
 
-    predicted_volume: float
     volume_stock_b: float
     baseline_volume: float
     concentration_b: float
-    cell_volume: float
     normalised_molar_ratio: float
 
 
@@ -65,15 +90,16 @@ class TitrationResult:
     max_volume_added: float | None = None
     within_limit: bool | None = None
 
-    rows: list[IncreasingRow] | list[FixedRow] = field(
-        default_factory=list
-    )
+    rows: list[IncreasingRow] | list[FixedRow] = field(default_factory=list)
 
     def result_to_dataframe(self) -> tuple[pd.DataFrame, dict[str, str]]:
         """
         Convert the calculated titration rows into a pandas DataFrame.
 
-        Calculation-level metadata is added as additional columns.
+        Only per-point quantities are columns, plus the working
+        concentration of Solution A (read by Delta Epsilon). The other
+        calculation-level values are the same for every point and are
+        available from :meth:`result_attributes`.
 
         Returns
         -------
@@ -85,15 +111,7 @@ class TitrationResult:
 
         df = pd.DataFrame(asdict(row) for row in self.rows)
 
-        df["mode"] = self.mode.value
-        df["volume_solution_a"] = self.volume_solution_a
         df["working_concentration_a"] = self.working_concentration_a
-
-        if self.mode == TitrationMode.INCREASING:
-            df["volume_buffer"] = self.volume_buffer
-            df["max_volume_allowed"] = self.max_volume_allowed
-            df["max_volume_added"] = self.max_volume_added
-            df["within_limit"] = self.within_limit
 
         units: dict[str, str] = {}
         for column in df.columns:
@@ -103,6 +121,23 @@ class TitrationResult:
                 df[column] = df[column].apply(lambda value: value.magnitude)
 
         return df, units
+
+    def result_attributes(self) -> dict[str, object]:
+        """Calculation-level values, for ``Table.attributes``."""
+        attributes: dict[str, object] = {
+            "mode": self.mode.value,
+            "volume_solution_a": quantity_string(self.volume_solution_a),
+        }
+        if self.mode == TitrationMode.INCREASING:
+            attributes.update(
+                {
+                    "volume_buffer": quantity_string(self.volume_buffer),
+                    "max_volume_allowed": quantity_string(self.max_volume_allowed),
+                    "max_volume_added": quantity_string(self.max_volume_added),
+                    "within_limit": bool(self.within_limit),
+                }
+            )
+        return attributes
 
 
 class CDTitrationCalculator:
@@ -126,10 +161,14 @@ class CDTitrationCalculator:
             raise ValueError("Starting cell volume must be greater than zero")
 
         if float(stock_con_a.magnitude) <= 0:
-            raise ValueError("Stock concentration of solution A must be greater than zero")
+            raise ValueError(
+                "Stock concentration of solution A must be greater than zero"
+            )
 
         if float(working_con_a.magnitude) <= 0:
-            raise ValueError("Working concentration of solution A must be greater than zero")
+            raise ValueError(
+                "Working concentration of solution A must be greater than zero"
+            )
 
         if not stock_b_concentrations:
             raise ValueError("At least one stock-B concentration is required")
@@ -139,7 +178,7 @@ class CDTitrationCalculator:
             for concentration in stock_b_concentrations
         ):
             raise ValueError("All stock-B concentrations must be greater than zero")
-        
+
         self.starting_cell_volume = starting_cell_volume
         self.stock_con_a = stock_con_a
         self.working_con_a = working_con_a
@@ -152,7 +191,9 @@ class CDTitrationCalculator:
         Constant volume of stock solution A required.
         """
 
-        return round((self.working_con_a / self.stock_con_a) * self.starting_cell_volume, 1)
+        return round_volume(
+            (self.working_con_a / self.stock_con_a) * self.starting_cell_volume
+        )
 
     def _required_stock_b_volume(
         self,
@@ -168,7 +209,10 @@ class CDTitrationCalculator:
             raise ValueError("The required ratio must not be negative")
 
         return (
-            required_ratio * self.working_con_a * self.starting_cell_volume / stock_con_b
+            required_ratio
+            * self.working_con_a
+            * self.starting_cell_volume
+            / stock_con_b
         )
 
     @staticmethod
@@ -195,8 +239,8 @@ class CDTitrationCalculator:
         self,
         required_ratio: float,
         *,
-        target_min: Quantity = Quantity(2.0, "microlitres"),
-        target_max: Quantity = Quantity(20.0, "microlitres"),
+        target_min: Quantity = DEFAULT_TARGET_MIN,
+        target_max: Quantity = DEFAULT_TARGET_MAX,
     ) -> tuple[int, Quantity]:
         """
         Automatically choose the most appropriate stock-B solution.
@@ -237,16 +281,16 @@ class CDTitrationCalculator:
             raise ValueError("Minimum target volume must not be negative")
 
         if float(target_max.magnitude) <= float(target_min.magnitude):
-            raise ValueError("Maximum target volume must be greater than minimum target volume")
+            raise ValueError(
+                "Maximum target volume must be greater than minimum target volume"
+            )
 
         candidates: list[tuple[int, float]] = []
 
         for stock_number, stock_con_b in enumerate(self.stock_b_concs, 1):
-            predicted_volume = (
-                self._required_stock_b_volume(
-                    required_ratio=required_ratio,
-                    stock_con_b=stock_con_b,
-                )
+            predicted_volume = self._required_stock_b_volume(
+                required_ratio=required_ratio,
+                stock_con_b=stock_con_b,
             )
 
             candidates.append((stock_number, predicted_volume))
@@ -276,8 +320,8 @@ class CDTitrationCalculator:
         ratios: Sequence[float],
         *,
         mode: TitrationMode,
-        target_min: Quantity = Quantity(2.0, "microlitres"),
-        target_max: Quantity = Quantity(20.0, "microlitres"),
+        target_min: Quantity = DEFAULT_TARGET_MIN,
+        target_max: Quantity = DEFAULT_TARGET_MAX,
     ) -> list[TitrationPoint]:
         """
         Create titration points using automatic stock selection.
@@ -298,15 +342,12 @@ class CDTitrationCalculator:
         if any(ratio <= 0 for ratio in numeric_ratios):
             raise ValueError("All titration ratios must be greater than zero")
 
-        if mode == TitrationMode.INCREASING:
-            if any(
-                current <= previous
-                for previous, current in zip(
-                    numeric_ratios,
-                    numeric_ratios[1:],
-                )
-            ):
-                raise ValueError("Increasing-mode titration ratios must be strictly increasing")
+        if mode == TitrationMode.INCREASING and any(
+            current <= previous for previous, current in pairwise(numeric_ratios)
+        ):
+            raise ValueError(
+                "Increasing-mode titration ratios must be strictly increasing"
+            )
 
         points: list[TitrationPoint] = []
         previous_ratio = 0.0
@@ -317,9 +358,7 @@ class CDTitrationCalculator:
             elif mode == TitrationMode.INCREASING:
                 required_ratio = ratio - previous_ratio
             else:
-                raise ValueError(
-                    f"Unknown titration mode: {mode}"
-                )
+                raise ValueError(f"Unknown titration mode: {mode}")
 
             stock_b, predicted_volume = self.choose_stock(
                 required_ratio=required_ratio,
@@ -357,7 +396,9 @@ class CDTitrationCalculator:
                 raise ValueError("All titration ratios must be greater than zero")
 
             if not 1 <= point.stock_b <= number_of_stocks:
-                raise ValueError(f"Stock-B number {point.stock_b} is invalid. Expected a value from 1 to {number_of_stocks}.")
+                raise ValueError(
+                    f"Stock-B number {point.stock_b} is invalid. Expected a value from 1 to {number_of_stocks}."
+                )
 
     def calculate(
         self,
@@ -392,22 +433,16 @@ class CDTitrationCalculator:
         for point in points:
             stock_b_con = self.stock_b_concs[point.stock_b - 1]
 
-            calculated_volume = (
-                self._required_stock_b_volume(
-                    required_ratio=point.ratio,
-                    stock_con_b=stock_b_con,
-                )
+            calculated_volume = self._required_stock_b_volume(
+                required_ratio=point.ratio,
+                stock_con_b=stock_b_con,
             )
 
-            predicted_volume = (
-                calculated_volume
-                if point.predicted_volume is None
-                else point.predicted_volume
+            volume_stock_b = round_volume(calculated_volume)
+
+            baseline_volume = round_volume(
+                self.starting_cell_volume - volume_a - volume_stock_b
             )
-
-            volume_stock_b = round(calculated_volume,1)
-
-            baseline_volume = round(self.starting_cell_volume - volume_a - volume_stock_b, 1)
 
             if baseline_volume < 0:
                 raise ValueError(
@@ -415,18 +450,18 @@ class CDTitrationCalculator:
                     "The combined volumes of solutions A and B exceed the fixed cell volume."
                 )
 
-            concentration_b = round(self.working_con_a * point.ratio, 1)
+            concentration_b = round_concentration(self.working_con_a * point.ratio)
 
             rows.append(
                 FixedRow(
                     ratio=point.ratio,
                     stock_b=point.stock_b,
-                    predicted_volume=round(predicted_volume, 3),
                     volume_stock_b=volume_stock_b,
                     baseline_volume=baseline_volume,
                     concentration_b=concentration_b,
-                    cell_volume=self.starting_cell_volume,
-                    normalised_molar_ratio=round(point.ratio/self.stock_b_molar_equiv, 3)
+                    normalised_molar_ratio=round(
+                        point.ratio / self.stock_b_molar_equiv, 3
+                    ),
                 )
             )
 
@@ -447,7 +482,7 @@ class CDTitrationCalculator:
 
         volume_a = self.volume_solution_a
 
-        volume_buffer = round(self.starting_cell_volume - volume_a, 1)
+        volume_buffer = round_volume(self.starting_cell_volume - volume_a)
 
         rows: list[IncreasingRow] = []
 
@@ -460,26 +495,18 @@ class CDTitrationCalculator:
 
             stock_b_con = self.stock_b_concs[point.stock_b - 1]
 
-            ratio_increment = (point.ratio - previous_ratio)
+            ratio_increment = point.ratio - previous_ratio
 
-            calculated_step_volume = (
-                self._required_stock_b_volume(
-                    required_ratio=ratio_increment,
-                    stock_con_b=stock_b_con,
-                )
+            calculated_step_volume = self._required_stock_b_volume(
+                required_ratio=ratio_increment,
+                stock_con_b=stock_b_con,
             )
 
-            predicted_volume = (
-                calculated_step_volume
-                if point.predicted_volume is None
-                else point.predicted_volume
-            )
+            step_volume = round_volume(calculated_step_volume)
 
-            step_volume = round(calculated_step_volume, 1)
+            total_stock_b = round_volume(total_stock_b + step_volume)
 
-            total_stock_b = round(total_stock_b + step_volume, 1)
-
-            total_cell_volume = round(self.starting_cell_volume + total_stock_b, 1)
+            total_cell_volume = round_volume(self.starting_cell_volume + total_stock_b)
 
             dilution_factor = round(total_cell_volume / self.starting_cell_volume, 3)
 
@@ -487,21 +514,19 @@ class CDTitrationCalculator:
                 IncreasingRow(
                     ratio=point.ratio,
                     stock_b=point.stock_b,
-                    predicted_volume=round(
-                        predicted_volume,
-                        3,
-                    ),
                     volume_added_this_step=step_volume,
                     total_stock_b_volume=total_stock_b,
                     total_cell_volume=total_cell_volume,
                     dilution_factor=dilution_factor,
-                    normalised_molar_ratio=round(point.ratio/self.stock_b_molar_equiv,3)
+                    normalised_molar_ratio=round(
+                        point.ratio / self.stock_b_molar_equiv, 3
+                    ),
                 )
             )
 
             previous_ratio = point.ratio
 
-        max_volume_allowed = round(self.starting_cell_volume * 0.15, 1)
+        max_volume_allowed = round_volume(self.starting_cell_volume * 0.15)
 
         return TitrationResult(
             mode=TitrationMode.INCREASING,
@@ -514,33 +539,48 @@ class CDTitrationCalculator:
             rows=rows,
         )
 
+
+# Shared invalid index: the default parent of the model's row/column queries.
+NO_PARENT = gui.QtCore.QModelIndex()
+
+
 class DataFrameModel(gui.QtCore.QAbstractTableModel):
     """Read-only pandas DataFrame model."""
+
     def __init__(self, dataframe=None):
         super().__init__()
         self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
 
     def set_dataframe(self, dataframe):
-        self.beginResetModel(); self._dataframe = dataframe.copy(); self.endResetModel()
+        self.beginResetModel()
+        self._dataframe = dataframe.copy()
+        self.endResetModel()
 
-    def rowCount(self, parent=gui.QtCore.QModelIndex()):
+    def rowCount(self, parent=NO_PARENT):
         return 0 if parent.isValid() else len(self._dataframe)
 
-    def columnCount(self, parent=gui.QtCore.QModelIndex()):
+    def columnCount(self, parent=NO_PARENT):
         return 0 if parent.isValid() else len(self._dataframe.columns)
 
     def data(self, index, role=gui.QtCore.Qt.DisplayRole):
-        if not index.isValid(): return None
+        if not index.isValid():
+            return None
         value = self._dataframe.iat[index.row(), index.column()]
         if role in (gui.QtCore.Qt.DisplayRole, gui.QtCore.Qt.EditRole):
-            if pd.isna(value): return ""
+            if pd.isna(value):
+                return ""
             return f"{value:g}" if isinstance(value, float) else str(value)
-        if role == gui.QtCore.Qt.TextAlignmentRole and isinstance(value, (int, float)) and not isinstance(value, bool):
+        if (
+            role == gui.QtCore.Qt.TextAlignmentRole
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        ):
             return int(gui.QtCore.Qt.AlignRight | gui.QtCore.Qt.AlignVCenter)
         return None
 
     def headerData(self, section, orientation, role=gui.QtCore.Qt.DisplayRole):
-        if role != gui.QtCore.Qt.DisplayRole: return None
+        if role != gui.QtCore.Qt.DisplayRole:
+            return None
         if orientation == gui.QtCore.Qt.Horizontal:
             return str(self._dataframe.columns[section]).replace("_", " ").title()
         return str(section + 1)
@@ -549,7 +589,7 @@ class DataFrameModel(gui.QtCore.QAbstractTableModel):
 class OWTitrationCalculator(OWWidget):
     name = "CD Titration Calculator"
     description = "Calculate fixed- or increasing-volume CD titration tables."
-    icon = "icons/Titration.svg"
+    icon = "icons/TitrationCalculator.svg"
     priority = 10
     want_main_area = True
     resizing_enabled = True
@@ -557,19 +597,19 @@ class OWTitrationCalculator(OWWidget):
     class Outputs:
         data = Output("Titration Table", Table)
 
-    VOLUME_UNITS = [
+    VOLUME_UNITS = (
         "liter",
         "milliliter",
         "microliter",
         "nanoliter",
-    ]
-    
-    CONCENTRATION_UNITS = [
+    )
+
+    CONCENTRATION_UNITS = (
         "molar",
         "millimolar",
         "micromolar",
         "nanomolar",
-    ]
+    )
 
     _conc_unit = Setting("micromolar")
     _volume_unit = Setting("microliter")
@@ -591,23 +631,32 @@ class OWTitrationCalculator(OWWidget):
     @property
     def starting_cell_volume(self):
         return Q_(float(self.starting_cell_volume_value), self._volume_unit)
+
     @property
     def stock_con_a(self):
         return Q_(float(self.stock_con_a_value), self._conc_unit)
+
     @property
     def working_con_a(self):
         return Q_(float(self.working_con_a_value), self._conc_unit)
+
     @property
     def minimum_volume(self):
         return Q_(float(self.target_min_volume_value), self._volume_unit)
+
     @property
     def maximum_volume(self):
         return Q_(float(self.target_max_volume_value), self._volume_unit)
-    
-
 
     class Error(OWWidget.Error):
         invalid_input = Msg("{}")
+
+    class Warning(OWWidget.Warning):
+        volume_exceeded = Msg(
+            "The total volume of Stock B added ({}) exceeds the limit of {} "
+            "(15% of the starting cell volume). The cell is diluted too much; "
+            "use a more concentrated Stock B or fewer/smaller titration steps."
+        )
 
     def __init__(self):
         super().__init__()
@@ -622,17 +671,35 @@ class OWTitrationCalculator(OWWidget):
 
     def _build_controls(self):
         box = gui.widgetBox(self.controlArea, "Titration inputs")
-        gui.comboBox(box, self, "_conc_unit", items=self.CONCENTRATION_UNITS, label="Stock solution concentration units:",
-                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
-        gui.comboBox(box, self, "_volume_unit", items=self.VOLUME_UNITS, label="Volume units:",
-                     sendSelectedValue=True, valueType=str, callback=self._on_unit_changed)
+        gui.comboBox(
+            box,
+            self,
+            "_conc_unit",
+            items=self.CONCENTRATION_UNITS,
+            label="Stock solution concentration units:",
+            sendSelectedValue=True,
+            callback=self._on_unit_changed,
+        )
+        gui.comboBox(
+            box,
+            self,
+            "_volume_unit",
+            items=self.VOLUME_UNITS,
+            label="Volume units:",
+            sendSelectedValue=True,
+            callback=self._on_unit_changed,
+        )
 
         self._unit_labels: list[tuple[gui.QtWidgets.QLabel, str, str]] = []
         for label, value, unit_kind in (
             ("Starting cell volume", "starting_cell_volume_value", "volume"),
             ("Stock concentration A", "stock_con_a_value", "concentration"),
             ("Working concentration A", "working_con_a_value", "concentration"),
-            ("Stock B concentrations", "stock_b_concentrations_values", "concentration"),
+            (
+                "Stock B concentrations",
+                "stock_b_concentrations_values",
+                "concentration",
+            ),
             ("Stock B molar equivalent", "stock_b_molar_equiv", None),
             ("Target minimum volume", "target_min_volume_value", "volume"),
             ("Target maximum volume", "target_max_volume_value", "volume"),
@@ -652,12 +719,19 @@ class OWTitrationCalculator(OWWidget):
         box.layout().addWidget(self.ratios_editor)
 
         gui.comboBox(
-            box, self, "mode", label="Mode",
+            box,
+            self,
+            "mode",
+            label="Mode",
             items=tuple(item.value for item in TitrationMode),
-            sendSelectedValue=True, valueType=str,
-            callback=self.calculate, orientation="horizontal",
+            sendSelectedValue=True,
+            callback=self.calculate,
+            orientation=Qt.Horizontal,
         )
-        note = gui.widgetLabel(box, "Enter comma-separated values for Stock B concentrations and Molar ratios. Concentrations must use consistent units.")
+        note = gui.widgetLabel(
+            box,
+            "Enter comma-separated values for Stock B concentrations and Molar ratios. Concentrations must use consistent units.",
+        )
         note.setWordWrap(True)
         gui.button(box, self, "Calculate", callback=self.calculate)
         gui.rubber(self.controlArea)
@@ -687,53 +761,84 @@ class OWTitrationCalculator(OWWidget):
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSelectionBehavior(gui.QtWidgets.QAbstractItemView.SelectRows)
         self.table_view.setEditTriggers(gui.QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.table_view.horizontalHeader().setSectionResizeMode(gui.QtWidgets.QHeaderView.ResizeToContents)
+        self.table_view.horizontalHeader().setSectionResizeMode(
+            gui.QtWidgets.QHeaderView.ResizeToContents
+        )
         self.table_view.horizontalHeader().setStretchLastSection(True)
         box.layout().addWidget(self.table_view)
 
     @staticmethod
     def _parse_float_list(text, field_name):
-        parts = [part.strip() for part in text.replace(";", ",").replace("\n", ",").split(",") if part.strip()]
-        if not parts: raise ValueError(f"{field_name} must contain at least one value")
-        try: return [float(part) for part in parts]
-        except ValueError as exc: raise ValueError(f"{field_name} must be a comma-separated list of numbers") from exc
+        parts = [
+            part.strip()
+            for part in text.replace(";", ",").replace("\n", ",").split(",")
+            if part.strip()
+        ]
+        if not parts:
+            raise ValueError(f"{field_name} must contain at least one value")
+        try:
+            return [float(part) for part in parts]
+        except ValueError as exc:
+            raise ValueError(
+                f"{field_name} must be a comma-separated list of numbers"
+            ) from exc
 
     def calculate(self):
         self.Error.clear()
+        self.Warning.clear()
         try:
             mode = TitrationMode(self.mode)
             ratios = self._parse_float_list(self.ratios, "Molar ratios")
 
-            stock_values = self._parse_float_list(self.stock_b_concentrations_values, "Stock B concentrations")
+            stock_values = self._parse_float_list(
+                self.stock_b_concentrations_values, "Stock B concentrations"
+            )
             stocks = [Q_(value, self._conc_unit) for value in stock_values]
 
             calculator = CDTitrationCalculator(
-                starting_cell_volume=self.starting_cell_volume, 
+                starting_cell_volume=self.starting_cell_volume,
                 stock_con_a=self.stock_con_a,
-                working_con_a=self.working_con_a, 
+                working_con_a=self.working_con_a,
                 stock_b_concentrations=stocks,
                 stock_b_molar_equiv=float(self.stock_b_molar_equiv),
             )
-            points = calculator.create_points(ratios=ratios, mode=mode, 
-                                                target_min=self.minimum_volume, 
-                                                target_max=self.maximum_volume
-                                                )
+            points = calculator.create_points(
+                ratios=ratios,
+                mode=mode,
+                target_min=self.minimum_volume,
+                target_max=self.maximum_volume,
+            )
             result = calculator.calculate(mode=mode, points=points)
             dataframe, units = result.result_to_dataframe()
         except (TypeError, ValueError) as exc:
-            self.table_model.set_dataframe(pd.DataFrame()); self.summary_label.setText("No result")
-            self.Error.invalid_input(str(exc)); self.Outputs.data.send(None); return
+            self.table_model.set_dataframe(pd.DataFrame())
+            self.summary_label.setText("No result")
+            self.Error.invalid_input(str(exc))
+            self.Outputs.data.send(None)
+            return
+
+        if result.mode == TitrationMode.INCREASING and not result.within_limit:
+            self.Warning.volume_exceeded(
+                f"{result.max_volume_added:~.4g}", f"{result.max_volume_allowed:~.4g}"
+            )
 
         self.table_model.set_dataframe(dataframe)
         summary = f"Volume of solution A: {result.volume_solution_a:g}"
         if result.mode == TitrationMode.INCREASING:
             summary += f" | Initial buffer volume: {result.volume_buffer:g} | Added volume within 15% limit: {'yes' if result.within_limit else 'no'}"
         self.summary_label.setText(summary)
-        self.Outputs.data.send(self._to_orange_table(dataframe, units))
+        self.Outputs.data.send(
+            self._to_orange_table(dataframe, units, result.result_attributes())
+        )
 
     @staticmethod
-    def _to_orange_table(dataframe, units):
-        numeric = [c for c in dataframe.columns if pd.api.types.is_numeric_dtype(dataframe[c]) and not pd.api.types.is_bool_dtype(dataframe[c])]
+    def _to_orange_table(dataframe, units, attributes):
+        numeric = [
+            c
+            for c in dataframe.columns
+            if pd.api.types.is_numeric_dtype(dataframe[c])
+            and not pd.api.types.is_bool_dtype(dataframe[c])
+        ]
         meta = [c for c in dataframe.columns if c not in numeric]
 
         def continuous_variable(name):
@@ -742,10 +847,19 @@ class OWTitrationCalculator(OWWidget):
                 variable.attributes["unit"] = units[name]
             return variable
 
-        domain = Domain([continuous_variable(c) for c in numeric], metas=[StringVariable(str(c)) for c in meta])
-        return Table.from_numpy(domain, dataframe[numeric].to_numpy(dtype=float), metas=dataframe[meta].astype(str).to_numpy(dtype=object))
+        domain = Domain(
+            [continuous_variable(c) for c in numeric],
+            metas=[StringVariable(str(c)) for c in meta],
+        )
+        return Table.from_numpy(
+            domain,
+            dataframe[numeric].to_numpy(dtype=float),
+            metas=dataframe[meta].astype(str).to_numpy(dtype=object),
+            attributes=attributes,
+        )
 
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
+
     WidgetPreview(OWTitrationCalculator).run()

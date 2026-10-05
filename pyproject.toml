@@ -26,6 +26,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Quasar spectroscopy widgets; the tables produced here are compatible with them.
+spectroscopy = [
+    "orange-spectroscopy",
+]
 test = [
     "pytest>=7",
     "pytest-cov>=4",
@@ -47,4 +51,11 @@ namespaces = true
 
 [tool.pytest.ini_options]
 addopts = "-ra"
-testpaths = ["orangecontrib/orangeCD/widgets/tests"]
+filterwarnings = [
+    # third-party deprecations raised while importing Orange
+    "ignore:chardet.universaldetector is deprecated:DeprecationWarning",
+    "ignore:import .orangecanvas.localization:DeprecationWarning",
+    # Quasar's LinearBaseline, used by the preprocessing-detection tests
+    "ignore:_LinearBaselineCommon should define __eq__:UserWarning",
+]
+testpaths = ["tests"]
