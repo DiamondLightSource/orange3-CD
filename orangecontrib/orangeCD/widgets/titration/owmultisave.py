@@ -1,22 +1,18 @@
-from pathlib import Path
 import numpy as np
 import pandas as pd
-
 from AnyQt.QtCore import (
-    Qt,
-    QModelIndex,
     QAbstractTableModel,
+    QModelIndex,
+    Qt,
 )
-
 from AnyQt.QtWidgets import (
     QFileDialog,
     QHeaderView,
 )
-
 from Orange.data import Table
-from Orange.widgets.widget import OWWidget, MultiInput
 from Orange.widgets import gui
 from Orange.widgets.utils.tableview import TableView
+from Orange.widgets.widget import MultiInput, OWWidget
 
 
 def table_to_dataframe(table):
@@ -345,6 +341,6 @@ class OWMultiSave(OWWidget):
                         index=False,
                     )
 
-                except Exception as ex:
+                except Exception:
                     raise
 

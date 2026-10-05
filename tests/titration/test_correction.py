@@ -4,6 +4,7 @@ import pathlib
 import tempfile
 
 import numpy as np
+from helpers import WAVELENGTHS, write_csv
 from Orange.data import ContinuousVariable, Domain, Table
 from Orange.widgets.tests import base as orange_tests
 
@@ -18,8 +19,6 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     spectrum_names,
     spectrum_units,
 )
-
-from helpers import WAVELENGTHS, write_csv
 
 ASC = sorted(WAVELENGTHS)
 SHAPE = np.arange(4.0)  # wavelength-dependent part, in ascending order

@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 import pytest
+from helpers import WAVELENGTHS, write_csv
 from Orange.widgets.tests import base as orange_tests
 
-from helpers import WAVELENGTHS, write_csv
 from orangecontrib.orangeCD.widgets.titration.owcddataloader import (
     OWCDDataLoader,
     average_cd_series,
@@ -12,6 +12,8 @@ from orangecontrib.orangeCD.widgets.titration.owcddataloader import (
     natural_key,
     parse_data,
     parse_remarks,
+)
+from orangecontrib.orangeCD.widgets.titration.owcddataloader import (
     test_empty_line as _empty_line,  # not a test
 )
 from orangecontrib.orangeCD.widgets.titration.utils import (

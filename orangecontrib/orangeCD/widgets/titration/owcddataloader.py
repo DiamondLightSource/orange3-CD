@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from AnyQt.QtCore import Qt
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Msg, Output, OWWidget

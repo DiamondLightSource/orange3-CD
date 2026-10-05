@@ -1,8 +1,8 @@
 import numpy as np
+from helpers import spectra_table, titration_table
 from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 
-from helpers import spectra_table, titration_table
 from orangecontrib.orangeCD.widgets.titration import Q_
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
 from orangecontrib.orangeCD.widgets.titration.utils import (

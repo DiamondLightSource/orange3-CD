@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
+from helpers import spectra_table, titration_table
 from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 from pint import DimensionalityError
 
-from helpers import spectra_table, titration_table
 from orangecontrib.orangeCD.widgets.titration import Q_
 from orangecontrib.orangeCD.widgets.titration.owdeltaepsilon import (
     DELTA_EPSILON_UNIT,

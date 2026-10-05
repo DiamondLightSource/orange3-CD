@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Construct the CD Apps Binding data and Origin data at one wavelength."""
 
 from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from AnyQt.QtCore import Qt
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
@@ -27,12 +26,15 @@ from .utils import (
     reference_spectrum,
     shared_unit,
     spectrum_units,
-    split_series_name,
-    stages as spectra_stages,
     table_quantity,
     table_unit,
     unit_string,
     unit_symbol,
+)
+from .utils import (
+    stages as spectra_stages,
+)
+from .utils import (
     wavelengths as spectra_wavelengths,
 )
 

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Scatter plot and manual Hill-equation fitting for Binding Data tables."""
 
 from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from scipy.optimize import curve_fit
+from AnyQt.QtCore import Qt
 from lmfit import Model
 from lmfit.model import ModelResult
-
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
-from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget

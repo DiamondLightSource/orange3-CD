@@ -3,7 +3,13 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 import pytest
-from Orange.data import ContinuousVariable, DiscreteVariable, Domain, StringVariable, Table
+from Orange.data import (
+    ContinuousVariable,
+    DiscreteVariable,
+    Domain,
+    StringVariable,
+    Table,
+)
 from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration import owmultisave

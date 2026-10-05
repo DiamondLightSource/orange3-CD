@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Convert selected CD spectra to mean-residue delta epsilon."""
 
 from __future__ import annotations
 
 import numpy as np
-from pint import Quantity
-
-from Orange.data import Table
 from AnyQt.QtCore import Qt
+from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
+from pint import Quantity
 
 from . import Q_
 from .utils import (
@@ -29,8 +27,12 @@ from .utils import (
     reference_spectrum,
     spectrum_units,
     split_series_name,
-    stages as spectra_stages,
     unit_string,
+)
+from .utils import (
+    stages as spectra_stages,
+)
+from .utils import (
     wavelengths as spectra_wavelengths,
 )
 

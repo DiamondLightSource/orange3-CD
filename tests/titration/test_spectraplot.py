@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 from AnyQt.QtGui import QColor
+from helpers import spectra_table
 from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 
-from helpers import spectra_table
 from orangecontrib.orangeCD.widgets.titration.owcdspectraplot import (
     COLOUR_SCALES,
     OWCDSpectraPlot,

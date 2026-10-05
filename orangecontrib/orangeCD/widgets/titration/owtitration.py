@@ -1,20 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Sequence
 
 import pandas as pd
-
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from AnyQt.QtCore import Qt
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
-from Orange.widgets.widget import Msg, OWWidget, Output
-
-from . import ureg, Q_
-from .utils import quantity_string
+from Orange.widgets.widget import Msg, Output, OWWidget
 from pint import Quantity
+
+from . import Q_
+from .utils import quantity_string
 
 
 def _round_quantity(quantity: Quantity, unit: str, digits: int) -> Quantity:

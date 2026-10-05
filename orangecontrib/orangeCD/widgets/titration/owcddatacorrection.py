@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Apply the titration reference corrections to loaded CD spectra."""
 
 from __future__ import annotations
@@ -18,6 +17,8 @@ from .utils import (
     spectrum_names,
     spectrum_units,
     split_series_name,
+)
+from .utils import (
     wavelengths as spectra_wavelengths,
 )
 

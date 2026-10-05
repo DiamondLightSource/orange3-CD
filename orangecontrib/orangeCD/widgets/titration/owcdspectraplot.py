@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Orange widget for plotting circular-dichroism spectra."""
 
 from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
+from AnyQt.QtCore import Qt
 from AnyQt.QtGui import QColor
 from AnyQt.QtWidgets import QAbstractItemView
 from Orange.data import Table
-from AnyQt.QtCore import Qt
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, OWWidget
 
 from .utils import (
+    WAVELENGTH_UNIT_KEY,
     InvalidWavelength,
     SpectraError,
     matching_spectra,
-    WAVELENGTH_UNIT_KEY,
     shared_unit,
     spectrum_names,
     spectrum_units,
     table_unit,
     unit_symbol,
+)
+from .utils import (
     wavelengths as spectra_wavelengths,
 )
 

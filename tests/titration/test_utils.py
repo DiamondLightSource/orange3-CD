@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
+from helpers import spectra_table
 from Orange.data import ContinuousVariable, Domain, Table
 
-from helpers import spectra_table
 from orangecontrib.orangeCD.widgets.titration import Q_
 from orangecontrib.orangeCD.widgets.titration.utils import (
     MDEG_PER_DELTA_A,

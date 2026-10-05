@@ -1,7 +1,8 @@
 """Widget tests for the loader -> preprocess -> delta epsilon -> binding chain."""
 
 import numpy as np
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from helpers import titration_table, write_csv
+from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
@@ -16,10 +17,7 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     spectrum_units,
     table_quantity,
     unit_string,
-    wavelengths,
 )
-
-from helpers import WAVELENGTHS, titration_table, write_csv
 
 
 class LoaderFixture:
@@ -40,7 +38,8 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         self.widget = self.create_widget(OWDeltaEpsilon)
 
     def run_pipeline(self):
-        import tempfile, pathlib
+        import pathlib
+        import tempfile
         with tempfile.TemporaryDirectory() as d:
             loaded = self.load(pathlib.Path(d))
         # Stand-in for Quasar preprocessing: a transform keeps metas/attributes.
