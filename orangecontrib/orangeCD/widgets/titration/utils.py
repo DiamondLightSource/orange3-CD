@@ -51,6 +51,27 @@ def split_series_name(name: str) -> tuple[str, str] | None:
     return (sample, stage) if sample and stage else None
 
 
+def has_spectroscopy_preprocessing(table: Table) -> bool:
+    """Whether Quasar (orangecontrib.spectroscopy) preprocessing was applied.
+
+    Orange does not tell a widget which widget its input came from, but
+    preprocessed attributes remember how they were computed. Quasar's
+    preprocessors leave a ``compute_value`` from the
+    ``orangecontrib.spectroscopy`` package on the attributes. A purely
+    selecting step such as *Cut* leaves nothing behind, so it is not
+    detected, and neither is a table that was saved and reloaded.
+    """
+    for variable in table.domain.attributes:
+        compute = variable.compute_value
+        for _ in range(50):  # guard against cyclic chains
+            if compute is None:
+                break
+            if type(compute).__module__.startswith("orangecontrib.spectroscopy"):
+                return True
+            compute = getattr(getattr(compute, "variable", None), "compute_value", None)
+    return False
+
+
 def spectrum_names(table: Table) -> list[str]:
     """Return the name of every row, in row order."""
     for index, variable in enumerate(table.domain.metas):

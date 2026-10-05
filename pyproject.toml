@@ -55,5 +55,7 @@ filterwarnings = [
     # third-party deprecations raised while importing Orange
     "ignore:chardet.universaldetector is deprecated:DeprecationWarning",
     "ignore:import .orangecanvas.localization:DeprecationWarning",
+    # Quasar's LinearBaseline, used by the preprocessing-detection tests
+    "ignore:_LinearBaselineCommon should define __eq__:UserWarning",
 ]
 testpaths = ["tests"]

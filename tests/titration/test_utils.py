@@ -10,6 +10,7 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     MissingWavelength,
     SpectraError,
     build_spectra_table,
+    has_spectroscopy_preprocessing,
     matching_spectra,
     quantity_string,
     reference_spectrum,
@@ -162,3 +163,40 @@ class TestBuildSpectraTable:
             table, np.ones((1, 4)), ["x | s"], ["degree"], {"k": 1}
         )
         assert dict(out.attributes) == {"k": 1}
+
+
+class TestPreprocessingDetection:
+    """Quasar preprocessing leaves a compute_value on the attributes."""
+
+    @pytest.fixture
+    def preprocess(self):
+        return pytest.importorskip("orangecontrib.spectroscopy.preprocess")
+
+    def test_raw_table_is_not_preprocessed(self, table):
+        assert not has_spectroscopy_preprocessing(table)
+
+    def test_foreign_table(self):
+        assert not has_spectroscopy_preprocessing(Table("iris"))
+
+    def test_table_without_attributes(self):
+        empty = Table.from_numpy(Domain([]), np.zeros((2, 0)))
+        assert not has_spectroscopy_preprocessing(empty)
+
+    def test_baseline_is_detected(self, table, preprocess):
+        assert has_spectroscopy_preprocessing(preprocess.LinearBaseline()(table))
+
+    def test_normalisation_is_detected(self, table, preprocess):
+        normalised = preprocess.Normalize(method=preprocess.Normalize.MinMax)(table)
+        assert has_spectroscopy_preprocessing(normalised)
+
+    def test_detected_after_a_later_non_quasar_transform(self, table, preprocess):
+        preprocessed = preprocess.LinearBaseline()(table)
+        assert has_spectroscopy_preprocessing(preprocessed[:2])
+
+    def test_cut_alone_is_not_detected(self, table, preprocess):
+        # Cut only selects columns, so it leaves no trace (documented limit).
+        assert not has_spectroscopy_preprocessing(preprocess.Cut(lowlim=235, highlim=255)(table))
+
+    def test_cut_then_baseline_is_detected(self, table, preprocess):
+        cut = preprocess.Cut(lowlim=235, highlim=255)(table)
+        assert has_spectroscopy_preprocessing(preprocess.LinearBaseline()(cut))

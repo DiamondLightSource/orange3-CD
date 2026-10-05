@@ -4,19 +4,25 @@
 from __future__ import annotations
 
 import numpy as np
+from AnyQt.QtCore import Qt
 from Orange.data import Table
 from Orange.widgets import gui
+from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from . import Q_
 from .utils import (
     BACKGROUND_PREFIX,
+    WAVELENGTH_UNIT_KEY,
     InvalidWavelength,
     SpectraError,
     build_spectra_table,
+    has_spectroscopy_preprocessing,
     spectrum_names,
     spectrum_units,
     split_series_name,
+    table_unit,
+    unit_symbol,
 )
 from .utils import (
     wavelengths as spectra_wavelengths,
@@ -80,6 +86,45 @@ def correct_spectra(
     return result
 
 
+DEFAULT_LAZY_WINDOW_PERCENT = 10
+MIN_WINDOW_POINTS = 3
+
+
+def find_flat_region(X: np.ndarray, window: int) -> tuple[int, int]:
+    """Find the flattest stretch of the wavelength axis.
+
+    Every window of ``window`` consecutive points is scored by the spread of
+    each spectrum inside it, relative to that spectrum's spread over the
+    whole axis, so that each spectrum counts equally whatever its size.
+    Returns the half-open ``(start, stop)`` index range of the best window.
+    """
+    X = np.asarray(X, dtype=float)
+    n_points = X.shape[1]
+    window = max(1, min(window, n_points))
+    overall = np.nanstd(X, axis=1)
+    usable = overall > 0
+    if not usable.any():
+        return 0, window
+    windows = np.lib.stride_tricks.sliding_window_view(X[usable], window, axis=1)
+    score = np.nanmean(np.nanstd(windows, axis=2) / overall[usable, None], axis=0)
+    start = int(np.nanargmin(score))
+    return start, start + window
+
+
+def auto_baseline(
+    X: np.ndarray, window_percent: float = DEFAULT_LAZY_WINDOW_PERCENT
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
+    """Subtract each spectrum's mean over the automatically found flat region.
+
+    Returns ``(corrected X, per-spectrum offsets, (start, stop))``.
+    """
+    X = np.asarray(X, dtype=float)
+    window = max(MIN_WINDOW_POINTS, round(X.shape[1] * window_percent / 100))
+    start, stop = find_flat_region(X, window)
+    offsets = np.nanmean(X[:, start:stop], axis=1)
+    return X - offsets[:, None], offsets, (start, stop)
+
+
 class OWCDDataCorrection(OWWidget):
     name = "CD Data Correction"
     description = (
@@ -90,6 +135,9 @@ class OWCDDataCorrection(OWWidget):
     priority = 25
     want_main_area = False
     resizing_enabled = False
+
+    lazy_process = Setting(False)
+    lazy_window_percent = Setting(DEFAULT_LAZY_WINDOW_PERCENT)
 
     class Inputs:
         data = Input("CD Data", Table)
@@ -115,6 +163,15 @@ class OWCDDataCorrection(OWWidget):
             "factor of 1 was assumed for every point (correct only for a "
             "fixed-volume titration)."
         )
+        no_preprocessing = Msg(
+            "The input does not appear to have been through Preprocess Spectra,\n"
+            "so its baseline has not been subtracted. Use Preprocess Spectra,\n"
+            "or press 'Lazy process' to subtract a baseline here."
+        )
+        double_baseline = Msg(
+            "The input has already been preprocessed, and 'Lazy process' "
+            "subtracts a further baseline."
+        )
         no_sol_b = Msg(
             "No 'Background | sol_B' spectrum: Solution B subtraction skipped."
         )
@@ -134,9 +191,24 @@ class OWCDDataCorrection(OWWidget):
             "3. subtract Solution B x molar ratio\n"
             "4. add Solution A back\n"
             "The zero-level offset is not applied; use spectral preprocessing "
-            "first.",
+            "first, or 'Lazy process' below.",
         )
         note.setWordWrap(True)
+
+        lazy_box = gui.widgetBox(self.controlArea, "Lazy process")
+        gui.checkBox(
+            lazy_box, self, "lazy_process", "Lazy process",
+            callback=self.commit,
+            tooltip="Find the flattest region of the spectra and subtract each "
+                    "spectrum's mean over it before the corrections.",
+        )
+        gui.spin(
+            lazy_box, self, "lazy_window_percent", 2, 50,
+            label="Flat region width (% of wavelength range)",
+            orientation=Qt.Horizontal, callback=self.commit,
+        )
+        self.lazy_label = gui.widgetLabel(lazy_box, "")
+        self.lazy_label.setWordWrap(True)
 
     @Inputs.data
     def set_data(self, data: Table | None) -> None:
@@ -162,8 +234,14 @@ class OWCDDataCorrection(OWWidget):
         self.Outputs.data.send(self._correct())
 
     def _correct(self) -> Table | None:
+        self.lazy_label.setText("")
         if self.data is None:
             return None
+        preprocessed = has_spectroscopy_preprocessing(self.data)
+        if self.lazy_process and preprocessed:
+            self.Warning.double_baseline()
+        elif not self.lazy_process and not preprocessed:
+            self.Warning.no_preprocessing()
         if self.titration is None:
             self.Warning.no_titration()
             return None
@@ -228,8 +306,20 @@ class OWCDDataCorrection(OWWidget):
             )
             return None
 
+        X = self.data.X
+        region = None
+        if self.lazy_process:
+            X, _, (start, stop) = auto_baseline(X, self.lazy_window_percent)
+            axis = spectra_wavelengths(self.data)[start:stop]
+            region = (float(axis.min()), float(axis.max()))
+            symbol = unit_symbol(table_unit(self.data, WAVELENGTH_UNIT_KEY)) or ""
+            self.lazy_label.setText(
+                f"Baseline taken from the flat region {region[0]:g}\u2013"
+                f"{region[1]:g} {symbol}".rstrip()
+            )
+
         def values(row: int) -> np.ndarray:
-            return Q_(self.data.X[row], row_units[row]).to(unit).magnitude
+            return Q_(X[row], row_units[row]).to(unit).magnitude
 
         try:
             corrected = correct_spectra(
@@ -261,6 +351,8 @@ class OWCDDataCorrection(OWWidget):
             [*names, *new_names],
             [*row_units, *[unit] * len(new_names)],
         )
+        if region is not None:
+            output.attributes["lazy_baseline_region"] = list(region)
         output.name = (
             f"{self.data.name} - corrected" if self.data.name else "Corrected CD data"
         )
