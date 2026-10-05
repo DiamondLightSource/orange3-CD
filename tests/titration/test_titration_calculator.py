@@ -15,13 +15,13 @@ UM = "micromolar"
 
 
 def make_calculator(**overrides):
-    arguments = dict(
-        starting_cell_volume=Q_(500.0, UL),
-        stock_con_a=Q_(468.0, UM),
-        working_con_a=Q_(19.659, UM),
-        stock_b_concentrations=[Q_(2000, UM), Q_(4000, UM), Q_(8000, UM)],
-        stock_b_molar_equiv=2.75,
-    )
+    arguments = {
+        "starting_cell_volume": Q_(500.0, UL),
+        "stock_con_a": Q_(468.0, UM),
+        "working_con_a": Q_(19.659, UM),
+        "stock_b_concentrations": [Q_(2000, UM), Q_(4000, UM), Q_(8000, UM)],
+        "stock_b_molar_equiv": 2.75,
+    }
     arguments.update(overrides)
     return CDTitrationCalculator(**arguments)
 
@@ -34,11 +34,11 @@ class TestConstruction:
     @pytest.mark.parametrize(
         "override",
         [
-            dict(starting_cell_volume=Q_(0, UL)),
-            dict(stock_con_a=Q_(0, UM)),
-            dict(working_con_a=Q_(-1, UM)),
-            dict(stock_b_concentrations=[]),
-            dict(stock_b_concentrations=[Q_(1, UM), Q_(0, UM)]),
+            {"starting_cell_volume": Q_(0, UL)},
+            {"stock_con_a": Q_(0, UM)},
+            {"working_con_a": Q_(-1, UM)},
+            {"stock_b_concentrations": []},
+            {"stock_b_concentrations": [Q_(1, UM), Q_(0, UM)]},
         ],
     )
     def test_invalid(self, override):
@@ -221,12 +221,12 @@ class TestCalculatorWidget(orange_tests.WidgetTest):
 
     def test_invalid_input_shows_error_and_clears_output(self):
         for settings in (
-            dict(ratios="abc"),
-            dict(ratios=""),
-            dict(ratios="2, 1", mode="increasing"),
-            dict(stock_b_concentrations_values="x"),
-            dict(starting_cell_volume_value="-5"),
-            dict(stock_con_a_value="zero"),
+            {"ratios": "abc"},
+            {"ratios": ""},
+            {"ratios": "2, 1", "mode": "increasing"},
+            {"stock_b_concentrations_values": "x"},
+            {"starting_cell_volume_value": "-5"},
+            {"stock_con_a_value": "zero"},
         ):
             with self.subTest(**settings):
                 self.setUp()

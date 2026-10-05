@@ -81,10 +81,6 @@ class OWCDSpectraPlot(OWWidget):
     selected_spectra = Setting([])
     processing_stages = Setting(["All spectra"])
 
-    # This is the list model displayed by gui.listBox. It is derived from the
-    # input domain, so it is not persisted as a Setting.
-    spectra_names: list[str] = []
-
     class Inputs:
         data = Input("CD Data", Table)
 
@@ -102,6 +98,9 @@ class OWCDSpectraPlot(OWWidget):
             default="Viridis",
         )
 
+        # List model displayed by gui.listBox. It is derived from the input
+        # table, so it is not persisted as a Setting.
+        self.spectra_names: list[str] = []
         self.data: Table | None = None
         # Maps list-box position -> row index in self.data
         self._row_map: list[int] = []

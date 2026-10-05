@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -56,7 +57,7 @@ def parse_remarks(lines: Iterable[str]) -> dict[str, str | None]:
 def parse_data(lines: list[str]) -> dict[str, pd.DataFrame]:
     parsed: dict[str, pd.DataFrame] = {}
     sections = [i for i, line in enumerate(lines) if "Wavelength" in line]
-    for start, stop in zip(sections, sections[1:]):
+    for start, stop in pairwise(sections):
         title = lines[start - 1].split(",")[0].strip()
         rows = [
             [float(value) for value in line.strip().split(",") if value]
@@ -90,7 +91,7 @@ def file_parser(filename: str) -> dict[str, object]:
     starts.append(len(lines))
     parsers = {"Remarks": parse_remarks, "Data": parse_data}
     parsed: dict[str, object] = {}
-    for start, stop in zip(starts, starts[1:]):
+    for start, stop in pairwise(starts):
         title = lines[start].split(":", maxsplit=1)[0]
         parser = parsers.get(title)
         if parser is not None:
@@ -164,7 +165,6 @@ class OWCDDataLoader(OWWidget):
     selected_data_files = Setting([])
     wavelength_unit = Setting(WAVELENGTH_UNITS[0])
     cd_unit = Setting(CD_SIGNAL_UNITS[0])
-    data_file_names: list[str] = []
 
     class Outputs:
         data = Output("CD Data", Table)
@@ -174,6 +174,8 @@ class OWCDDataLoader(OWWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        # List model displayed by gui.listBox; must exist before the controls.
+        self.data_file_names: list[str] = []
         self.cd_data: pd.DataFrame | None = None
         self._build_controls()
         self._build_plot()

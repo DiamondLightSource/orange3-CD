@@ -76,7 +76,7 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         )
 
     def test_binding_data_and_plot(self):
-        _, _, delta_out, binding = self.run_pipeline()
+        _, _, _, binding = self.run_pipeline()
         self.assertFalse(binding.Error.active, binding.Error.active)
         out = self.get_output(binding.Outputs.data, widget=binding)
         self.assertEqual(len(out), 4)

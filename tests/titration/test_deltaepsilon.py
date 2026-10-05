@@ -31,13 +31,13 @@ def expected(cd_mdeg, conc_um=CONC, pathlength=1.0, mrw=113.0, mw_a=1.0):
 
 class TestCalculation:
     def args(self, **overrides):
-        values = dict(
-            cd=Q_(np.array([10.0, -20.0]), "millidegree"),
-            concentration=Q_(15, "micromolar"),
-            pathlength=Q_(1, "centimeter"),
-            mean_residue_molecular_weight=Q_(113, "gram / mole"),
-            solution_a_molecular_weight=Q_(1, "gram / mole"),
-        )
+        values = {
+            "cd": Q_(np.array([10.0, -20.0]), "millidegree"),
+            "concentration": Q_(15, "micromolar"),
+            "pathlength": Q_(1, "centimeter"),
+            "mean_residue_molecular_weight": Q_(113, "gram / mole"),
+            "solution_a_molecular_weight": Q_(1, "gram / mole"),
+        }
         values.update(overrides)
         return values
 
@@ -182,8 +182,8 @@ class TestWidget(orange_tests.WidgetTest):
     def test_stored_invalid_parameters_are_reset(self):
         widget = self.create_widget(
             OWDeltaEpsilon,
-            stored_settings=dict(pathlength_cm=-3, mean_residue_molecular_weight="x",
-                                 solution_a_molecular_weight=0),
+            stored_settings={"pathlength_cm": -3, "mean_residue_molecular_weight": "x",
+                                 "solution_a_molecular_weight": 0},
         )
         assert widget.pathlength_cm == 1.0
         assert widget.mean_residue_molecular_weight == 113.0

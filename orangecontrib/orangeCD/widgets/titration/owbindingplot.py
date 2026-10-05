@@ -102,8 +102,8 @@ def fit_hill(
 
     model = Model(hill_equation)
     params = model.make_params(v_max = top_guess,
-                               half_saturation = dict(value = half_guess, min = 0),
-                               hill_coefficient = dict(value = 1.0, min = 0)
+                               half_saturation = {"value": half_guess, "min": 0},
+                               hill_coefficient = {"value": 1.0, "min": 0}
                                )
     result = model.fit(y, params=params, x=x)
 
@@ -128,8 +128,8 @@ def fit_hill1(
     model = Model(hill1_equation)
     params = model.make_params(bottom = bottom_guess,
                                top = top_guess,
-                               half_saturation = dict(value = half_guess, min = 0),
-                               hill_coefficient = dict(value = 1.0, min = 0)
+                               half_saturation = {"value": half_guess, "min": 0},
+                               hill_coefficient = {"value": 1.0, "min": 0}
                                )
     result = model.fit(y, params=params, x=x)
 
@@ -149,12 +149,12 @@ def fit_bihill(
     x, y = validate_data(x, y)
 
     model = Model(bihill_equation)
-    params = model.make_params(p_m = dict(value = y.max(), min = 0),
-                               k_a = dict(value = x[np.argmax(np.gradient(y))], min = 0),
-                               k_i = dict(value = x[np.argmin(np.gradient(y))], min = 0),
+    params = model.make_params(p_m = {"value": y.max(), "min": 0},
+                               k_a = {"value": x[np.argmax(np.gradient(y))], "min": 0},
+                               k_i = {"value": x[np.argmin(np.gradient(y))], "min": 0},
                                # possibly could estimate this better in future?
-                               h_a = dict(value = 1, min = 0,),
-                               h_i = dict(value = 1, min = 0,),
+                               h_a = {"value": 1, "min": 0,},
+                               h_i = {"value": 1, "min": 0,},
                                )
     result = model.fit(y, params=params, x=x)
 
@@ -475,7 +475,8 @@ class OWBindingPlot(OWWidget):
 
         if not isinstance(x_variable, ContinuousVariable) or not isinstance(
             y_variable, ContinuousVariable):
-            raise ValueError("The selected x and y variables must be continuous")
+            # ValueError on purpose: callers treat every bad selection alike.
+            raise ValueError("The selected x and y variables must be continuous")  # noqa: TRY004
 
         _x = np.asarray(self.data.get_column(x_variable), dtype=float)
         _y = np.asarray(self.data.get_column(y_variable), dtype=float)
@@ -517,7 +518,7 @@ class OWBindingPlot(OWWidget):
             y_err = self._fit_curve["y_err"]
 
             # Best-fit line
-            fit_curve = self.plot.plot(
+            self.plot.plot(
                 fit_x,
                 fit_y,
                 pen=pg.mkPen("#d62728", width=self.line_width),

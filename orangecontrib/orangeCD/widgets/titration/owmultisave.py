@@ -108,18 +108,22 @@ def make_unique_sheet_names(names):
 # Model
 # ----------------------------------------------------------------------
 
+# Shared invalid index: the default parent of the model's row/column queries.
+NO_PARENT = QModelIndex()
+
+
 class SheetListModel(QAbstractTableModel):
 
-    HEADERS = ["Input", "Sheet Name"]
+    HEADERS = ("Input", "Sheet Name")
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.items = []
 
-    def rowCount(self, parent=QModelIndex()):
+    def rowCount(self, parent=NO_PARENT):
         return len(self.items)
 
-    def columnCount(self, parent=QModelIndex()):
+    def columnCount(self, parent=NO_PARENT):
         return 2
 
     def headerData(self, section, orientation, role):
@@ -333,14 +337,10 @@ class OWMultiSave(OWWidget):
             for item, sheet_name in zip(valid_items, sheet_names):
                 table = item["table"]
 
-                try:
-                    df = table_to_dataframe(table)
-                    df.to_excel(
-                        writer,
-                        sheet_name=sheet_name,
-                        index=False,
-                    )
-
-                except Exception:
-                    raise
+                df = table_to_dataframe(table)
+                df.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    index=False,
+                )
 

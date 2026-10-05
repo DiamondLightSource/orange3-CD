@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from itertools import pairwise
 
 import pandas as pd
 from AnyQt.QtCore import Qt
@@ -35,6 +36,11 @@ def round_volume(volume: Quantity) -> Quantity:
 def round_concentration(concentration: Quantity) -> Quantity:
     """Round a concentration to 0.1 uM."""
     return _round_quantity(concentration, "micromolar", 1)
+
+
+# Default pipetting range used to choose a Stock B solution.
+DEFAULT_TARGET_MIN = Quantity(2.0, "microlitres")
+DEFAULT_TARGET_MAX = Quantity(20.0, "microlitres")
 
 
 class TitrationMode(str, Enum):
@@ -224,8 +230,8 @@ class CDTitrationCalculator:
         self,
         required_ratio: float,
         *,
-        target_min: Quantity = Quantity(2.0, "microlitres"),
-        target_max: Quantity = Quantity(20.0, "microlitres"),
+        target_min: Quantity = DEFAULT_TARGET_MIN,
+        target_max: Quantity = DEFAULT_TARGET_MAX,
     ) -> tuple[int, Quantity]:
         """
         Automatically choose the most appropriate stock-B solution.
@@ -305,8 +311,8 @@ class CDTitrationCalculator:
         ratios: Sequence[float],
         *,
         mode: TitrationMode,
-        target_min: Quantity = Quantity(2.0, "microlitres"),
-        target_max: Quantity = Quantity(20.0, "microlitres"),
+        target_min: Quantity = DEFAULT_TARGET_MIN,
+        target_max: Quantity = DEFAULT_TARGET_MAX,
     ) -> list[TitrationPoint]:
         """
         Create titration points using automatic stock selection.
@@ -327,15 +333,10 @@ class CDTitrationCalculator:
         if any(ratio <= 0 for ratio in numeric_ratios):
             raise ValueError("All titration ratios must be greater than zero")
 
-        if mode == TitrationMode.INCREASING:
-            if any(
-                current <= previous
-                for previous, current in zip(
-                    numeric_ratios,
-                    numeric_ratios[1:],
-                )
-            ):
-                raise ValueError("Increasing-mode titration ratios must be strictly increasing")
+        if mode == TitrationMode.INCREASING and any(
+            current <= previous for previous, current in pairwise(numeric_ratios)
+        ):
+            raise ValueError("Increasing-mode titration ratios must be strictly increasing")
 
         points: list[TitrationPoint] = []
         previous_ratio = 0.0
@@ -525,6 +526,10 @@ class CDTitrationCalculator:
             rows=rows,
         )
 
+# Shared invalid index: the default parent of the model's row/column queries.
+NO_PARENT = gui.QtCore.QModelIndex()
+
+
 class DataFrameModel(gui.QtCore.QAbstractTableModel):
     """Read-only pandas DataFrame model."""
     def __init__(self, dataframe=None):
@@ -534,10 +539,10 @@ class DataFrameModel(gui.QtCore.QAbstractTableModel):
     def set_dataframe(self, dataframe):
         self.beginResetModel(); self._dataframe = dataframe.copy(); self.endResetModel()
 
-    def rowCount(self, parent=gui.QtCore.QModelIndex()):
+    def rowCount(self, parent=NO_PARENT):
         return 0 if parent.isValid() else len(self._dataframe)
 
-    def columnCount(self, parent=gui.QtCore.QModelIndex()):
+    def columnCount(self, parent=NO_PARENT):
         return 0 if parent.isValid() else len(self._dataframe.columns)
 
     def data(self, index, role=gui.QtCore.Qt.DisplayRole):
@@ -568,19 +573,19 @@ class OWTitrationCalculator(OWWidget):
     class Outputs:
         data = Output("Titration Table", Table)
 
-    VOLUME_UNITS = [
+    VOLUME_UNITS = (
         "liter",
         "milliliter",
         "microliter",
         "nanoliter",
-    ]
+    )
     
-    CONCENTRATION_UNITS = [
+    CONCENTRATION_UNITS = (
         "molar",
         "millimolar",
         "micromolar",
         "nanomolar",
-    ]
+    )
 
     _conc_unit = Setting("micromolar")
     _volume_unit = Setting("microliter")
