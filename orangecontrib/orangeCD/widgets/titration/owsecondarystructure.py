@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Estimate protein secondary structure from delta epsilon CD spectra (CDPro)."""
 
 from __future__ import annotations
@@ -7,21 +6,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-
+from AnyQt.QtCore import Qt
+from cdpro import REFSETS, cdsstr, continll, selcon3
+from cdpro.io.signal import to_dataset
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils.concurrent import ConcurrentWidgetMixin, TaskState
 from Orange.widgets.widget import Input, Msg, Output, OWWidget
-
-from cdpro import REFSETS
-from cdpro import cdsstr, continll, selcon3
-from cdpro.io.signal import to_dataset
+from pint.errors import PintError
 
 from . import Q_
+from .utils import (
+    DELTA_EPSILON_UNIT,
+    SPECTRUM_META,
+    SPECTRUM_UNIT_KEY,
+    UNIT_META,
+    WAVELENGTH_UNIT_KEY,
+    InvalidWavelength,
+    SpectraError,
+    matching_spectra,
+    spectrum_units,
+    table_unit,
+    unit_string,
+    wavelengths,
+)
 
 DELTA_EPSILON_SUFFIX = "delta_epsilon"
-DELTA_EPSILON_UNIT = "liter / mole / centimeter"
 AUTOMATIC = "Automatic (from wavelength range)"
 
 METHODS = {
@@ -37,46 +48,43 @@ REFERENCE_SET_VALUES = [None] + list(REFSETS)
 
 
 # --------------------------------------------------------------------------
-# Locating the wavelength and delta epsilon columns
+# Locating the delta epsilon spectra
 # --------------------------------------------------------------------------
 
-def find_wavelength_variable(data: Table) -> ContinuousVariable | None:
-    """The continuous variable holding wavelengths (nm), if any."""
-    candidates = [
-        var for var in (*data.domain.metas, *data.domain.attributes)
-        if isinstance(var, ContinuousVariable)
-    ]
-    for var in candidates:
-        if var.name.strip().lower() in ("wavelength", "wavelength_nm", "wavelength (nm)"):
-            return var
-    for var in candidates:
-        if var.name.strip().lower().startswith("wavelength"):
-            return var
-    return None
+
+def _is_delta_epsilon(name: str, unit: str | None) -> bool:
+    if unit:
+        try:
+            if unit_string(unit) == unit_string(DELTA_EPSILON_UNIT):
+                return True
+        except PintError:  # unparseable unit: fall back on the name
+            return name.endswith(f"_{DELTA_EPSILON_SUFFIX}")
+    return name.endswith(f"_{DELTA_EPSILON_SUFFIX}")
 
 
-def _is_delta_epsilon(var: ContinuousVariable) -> bool:
-    name = var.name.lower().replace(" ", "_")
-    if name.endswith(DELTA_EPSILON_SUFFIX) or "delta_epsilon" in name or "Δε" in var.name:
-        return True
-    unit = var.attributes.get("unit")
-    return bool(unit) and unit == str(Q_(1, DELTA_EPSILON_UNIT).units)
+def find_delta_epsilon_rows(data: Table) -> list[tuple[int, str]]:
+    """``(row, name)`` of every spectrum that is in delta epsilon units.
 
-
-def find_delta_epsilon_variables(
-    data: Table, wavelength: ContinuousVariable
-) -> list[ContinuousVariable]:
-    """Continuous variables that look like delta epsilon spectra."""
+    Raises ``SpectraError`` if ``data`` does not follow the spectra layout.
+    """
+    units = spectrum_units(data)
     return [
-        var for var in (*data.domain.attributes, *data.domain.metas)
-        if isinstance(var, ContinuousVariable)
-        and var is not wavelength
-        and _is_delta_epsilon(var)
+        (row, name)
+        for row, name in matching_spectra(data)
+        if _is_delta_epsilon(name, units[row])
     ]
 
 
-def spectrum_label(variable: ContinuousVariable) -> str:
-    name = variable.name
+def wavelengths_nm(data: Table) -> np.ndarray:
+    """The wavelength axis of ``data`` converted to nanometres."""
+    values = wavelengths(data)
+    unit = table_unit(data, WAVELENGTH_UNIT_KEY)
+    if unit is None:
+        return values
+    return np.asarray(Q_(values, unit).to("nanometer").magnitude, dtype=float)
+
+
+def spectrum_label(name: str) -> str:
     if name.endswith(f"_{DELTA_EPSILON_SUFFIX}"):
         name = name[: -len(DELTA_EPSILON_SUFFIX) - 1]
     return name
@@ -85,6 +93,7 @@ def spectrum_label(variable: ContinuousVariable) -> str:
 # --------------------------------------------------------------------------
 # Fitting
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class FitSettings:
@@ -118,12 +127,16 @@ def fit_spectrum(
     keep = np.isfinite(wavelength) & np.isfinite(delta_epsilon)
     try:
         dataset = to_dataset(wavelength[keep], delta_epsilon[keep], title=label)
-        kwargs = {"basis": settings.basis, "wl_min": settings.wl_min, "wl_max": settings.wl_max}
+        kwargs = {
+            "basis": settings.basis,
+            "wl_min": settings.wl_min,
+            "wl_max": settings.wl_max,
+        }
         if settings.method == "CDSSTR":
             kwargs["seed"] = settings.seed
         doc = METHODS[settings.method].to_json(dataset, **kwargs)
         entry = doc["results"][0]
-    except Exception as exc:  # cdpro raises ValueError for unusable spectra
+    except (ValueError, np.linalg.LinAlgError) as exc:  # unusable spectrum
         result.message = str(exc)
         return result
 
@@ -163,6 +176,7 @@ def fit_all(
 # Building output tables
 # --------------------------------------------------------------------------
 
+
 def _ordered_union(groups: list[dict]) -> list[str]:
     keys: list[str] = []
     for group in groups:
@@ -181,15 +195,20 @@ def structure_table(results: list[SpectrumResult], name: str = "") -> Table:
         + [ContinuousVariable("rmsd"), ContinuousVariable("nrmsd")]
     )
     metas = [
-        StringVariable("Spectrum"), StringVariable("Reference set"),
-        StringVariable("Status"), StringVariable("Message"),
+        StringVariable("Spectrum"),
+        StringVariable("Reference set"),
+        StringVariable("Status"),
+        StringVariable("Message"),
     ]
-    X = np.array([
-        [r.fractions.get(k, np.nan) for k in fraction_keys]
-        + [r.totals.get(k, np.nan) for k in total_keys]
-        + [r.rmsd, r.nrmsd]
-        for r in results
-    ], dtype=float).reshape(len(results), len(attributes))
+    X = np.array(
+        [
+            [r.fractions.get(k, np.nan) for k in fraction_keys]
+            + [r.totals.get(k, np.nan) for k in total_keys]
+            + [r.rmsd, r.nrmsd]
+            for r in results
+        ],
+        dtype=float,
+    ).reshape(len(results), len(attributes))
     M = np.array(
         [[r.label, r.reference_set, r.status, r.message] for r in results], dtype=object
     ).reshape(len(results), len(metas))
@@ -199,26 +218,41 @@ def structure_table(results: list[SpectrumResult], name: str = "") -> Table:
 
 
 def fitted_spectra_table(results: list[SpectrumResult], name: str = "") -> Table | None:
-    """Measured and calculated spectra of the fits on a common wavelength grid."""
+    """Measured and calculated spectra of the fits, one spectrum per row.
+
+    Uses the spectra layout shared by the other widgets: wavelength
+    attributes (nm), a ``Spectrum`` name meta of the form
+    ``sample | measured`` / ``sample | calculated`` and a ``Unit`` meta.
+    """
     fitted = [r for r in results if r.wavelength.size]
     if not fitted:
         return None
     grid = np.unique(np.concatenate([r.wavelength for r in fitted]))[::-1]
-    columns, variables = [], []
+    rows, names = [], []
     for r in fitted:
         index = np.searchsorted(-grid, -r.wavelength)
         for kind, values in (("measured", r.measured), ("calculated", r.calculated)):
-            column = np.full(grid.size, np.nan)
-            column[index] = values
-            columns.append(column)
-            variable = ContinuousVariable(f"{r.label} | {kind}")
-            variable.attributes["unit"] = str(Q_(1, DELTA_EPSILON_UNIT).units)
-            variables.append(variable)
-    wavelength = ContinuousVariable("Wavelength")
+            row = np.full(grid.size, np.nan)
+            row[index] = values
+            rows.append(row)
+            names.append(f"{r.label} | {kind}")
+    delta_unit = unit_string(DELTA_EPSILON_UNIT)
     table = Table.from_numpy(
-        Domain(variables, metas=[wavelength]),
-        np.column_stack(columns),
-        metas=grid.reshape(-1, 1),
+        Domain(
+            [ContinuousVariable(str(w)) for w in grid],
+            metas=[StringVariable(SPECTRUM_META), StringVariable(UNIT_META)],
+        ),
+        np.vstack(rows),
+        metas=np.column_stack(
+            (
+                np.asarray(names, dtype=object),
+                np.full(len(names), delta_unit, dtype=object),
+            )
+        ),
+        attributes={
+            WAVELENGTH_UNIT_KEY: unit_string("nanometer"),
+            SPECTRUM_UNIT_KEY: delta_unit,
+        },
     )
     table.name = name or "Fitted spectra"
     return table
@@ -227,6 +261,7 @@ def fitted_spectra_table(results: list[SpectrumResult], name: str = "") -> Table
 # --------------------------------------------------------------------------
 # Widget
 # --------------------------------------------------------------------------
+
 
 class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
     name = "Secondary Structure"
@@ -256,15 +291,19 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
     auto_commit = Setting(False)
 
     class Error(OWWidget.Error):
-        missing_wavelength = Msg("Input does not contain a wavelength column.")
+        missing_wavelength = Msg(
+            "Input does not contain a 'Spectrum' string meta naming the rows."
+        )
+        invalid_wavelength = Msg("Input attribute names are not all valid wavelengths.")
         no_delta_epsilon = Msg(
-            "No delta epsilon columns found (names ending in '_delta_epsilon' "
-            "or carrying the delta epsilon unit)."
+            "No delta epsilon spectra found (rows with the delta epsilon unit "
+            "or names ending in '_delta_epsilon')."
         )
         fit_failed = Msg("{}")
+        none_fitted = Msg("None of the {} spectra could be fitted: {}")
 
     class Warning(OWWidget.Warning):
-        some_failed = Msg("{} of {} spectra could not be fitted; see the Status column.")
+        some_failed = Msg("{} of {} spectra could not be fitted: {}")
 
     def __init__(self) -> None:
         OWWidget.__init__(self)
@@ -282,35 +321,76 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
     def _build_controls(self) -> None:
         box = gui.widgetBox(self.controlArea, "Method")
         gui.comboBox(
-            box, self, "method", label="Fitting method", items=list(METHODS),
-            sendSelectedValue=True, orientation="horizontal",
+            box,
+            self,
+            "method",
+            label="Fitting method",
+            items=list(METHODS),
+            sendSelectedValue=True,
+            orientation=Qt.Horizontal,
             callback=self._settings_changed,
         )
         gui.comboBox(
-            box, self, "reference_set_index", label="Reference set",
-            items=REFERENCE_SETS, orientation="horizontal",
+            box,
+            self,
+            "reference_set_index",
+            label="Reference set",
+            items=REFERENCE_SETS,
+            orientation=Qt.Horizontal,
             callback=self._settings_changed,
         )
         self.seed_spin = gui.spin(
-            box, self, "seed", 0, 2**31 - 1, label="CDSSTR random seed",
-            orientation="horizontal", callback=self._settings_changed,
+            box,
+            self,
+            "seed",
+            0,
+            2**31 - 1,
+            label="CDSSTR random seed",
+            orientation=Qt.Horizontal,
+            callback=self._settings_changed,
         )
 
         limits = gui.widgetBox(self.controlArea, "Wavelength limits (nm)")
-        gui.checkBox(limits, self, "use_wl_min", "Shortest wavelength",
-                     callback=self._settings_changed)
-        gui.doubleSpin(limits, self, "wl_min", 100, 400, step=1, decimals=1,
-                       callback=self._settings_changed)
-        gui.checkBox(limits, self, "use_wl_max", "Longest wavelength",
-                     callback=self._settings_changed)
-        gui.doubleSpin(limits, self, "wl_max", 100, 400, step=1, decimals=1,
-                       callback=self._settings_changed)
+        gui.checkBox(
+            limits,
+            self,
+            "use_wl_min",
+            "Shortest wavelength",
+            callback=self._settings_changed,
+        )
+        gui.doubleSpin(
+            limits,
+            self,
+            "wl_min",
+            100,
+            400,
+            step=1,
+            decimals=1,
+            callback=self._settings_changed,
+        )
+        gui.checkBox(
+            limits,
+            self,
+            "use_wl_max",
+            "Longest wavelength",
+            callback=self._settings_changed,
+        )
+        gui.doubleSpin(
+            limits,
+            self,
+            "wl_max",
+            100,
+            400,
+            step=1,
+            decimals=1,
+            callback=self._settings_changed,
+        )
 
         self.info_label = gui.widgetLabel(self.controlArea, "No data.")
         self.info_label.setWordWrap(True)
         note = gui.widgetLabel(
             self.controlArea,
-            "Each delta epsilon column is fitted as a separate spectrum. "
+            "Each delta epsilon spectrum (row) is fitted separately. "
             "Data must cover every whole nanometre in its range.",
         )
         note.setWordWrap(True)
@@ -336,25 +416,32 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
         self.cancel()
         if data is not None:
             self._locate_columns(data)
-        self.info_label.setText(
-            f"{len(self._spectra)} delta epsilon spectra found."
-            if self._spectra else "No spectra to fit."
-        )
+        if self._spectra:
+            self.info_label.setText(
+                f"{len(self._spectra)} delta epsilon spectra found, "
+                f"{self._wavelength.max():g}-{self._wavelength.min():g} nm."
+            )
+        else:
+            self.info_label.setText("No spectra to fit.")
         self.commit.now()
 
     def _locate_columns(self, data: Table) -> None:
-        wavelength = find_wavelength_variable(data)
-        if wavelength is None:
+        try:
+            rows = find_delta_epsilon_rows(data)
+            wavelength = wavelengths_nm(data)
+        except InvalidWavelength:
+            self.Error.invalid_wavelength()
+            return
+        except SpectraError:
             self.Error.missing_wavelength()
             return
-        variables = find_delta_epsilon_variables(data, wavelength)
-        if not variables:
+        if not rows:
             self.Error.no_delta_epsilon()
             return
-        self._wavelength = np.asarray(data.get_column(wavelength), dtype=float)
+        self._wavelength = wavelength
         self._spectra = [
-            (spectrum_label(var), np.asarray(data.get_column(var), dtype=float))
-            for var in variables
+            (spectrum_label(name), np.asarray(data.X[row], dtype=float))
+            for row, name in rows
         ]
 
     def _settings(self) -> FitSettings:
@@ -370,6 +457,7 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
     def commit(self) -> None:
         self.Error.fit_failed.clear()
         self.Warning.some_failed.clear()
+        self.Error.none_fitted.clear()
         self.cancel()
         if self._wavelength is None or not self._spectra:
             self._send(None, None)
@@ -382,12 +470,27 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
     def on_done(self, results: list[SpectrumResult]) -> None:
         name = self.data.name if self.data is not None and self.data.name else ""
         failed = sum(r.status != "ok" for r in results)
-        if failed:
-            self.Warning.some_failed(failed, len(results))
+        if failed == len(results):
+            self.Error.none_fitted(failed, self._failure_reasons(results))
+        elif failed:
+            self.Warning.some_failed(
+                failed, len(results), self._failure_reasons(results)
+            )
         self._send(
             structure_table(results, f"{name} - secondary structure" if name else ""),
             fitted_spectra_table(results, f"{name} - fitted spectra" if name else ""),
         )
+
+    @staticmethod
+    def _failure_reasons(results: list[SpectrumResult]) -> str:
+        """The distinct failure messages, most common first."""
+        counts: dict[str, int] = {}
+        for r in results:
+            if r.status != "ok":
+                reason = r.message or r.status
+                counts[reason] = counts.get(reason, 0) + 1
+        ordered = sorted(counts, key=counts.get, reverse=True)
+        return "; ".join(ordered)
 
     def on_exception(self, ex: Exception) -> None:
         self.Error.fit_failed(str(ex))
@@ -404,4 +507,5 @@ class OWSecondaryStructure(OWWidget, ConcurrentWidgetMixin):
 
 if __name__ == "__main__":
     from orangewidget.utils.widgetpreview import WidgetPreview
+
     WidgetPreview(OWSecondaryStructure).run()

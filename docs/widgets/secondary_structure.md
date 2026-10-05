@@ -4,9 +4,9 @@ Estimates protein secondary structure fractions from delta epsilon CD spectra, u
 
 ## Input
 
-A data table with a wavelength column (a continuous variable named `Wavelength`) and one or more delta epsilon columns. Delta epsilon columns are found by name (containing `delta_epsilon`) or by carrying the delta epsilon unit, so the output of the [Delta Epsilon](delta_epsilon.md) widget can be connected directly. Each delta epsilon column is fitted as a separate spectrum.
+A spectra table in the layout used by the other widgets: one row per spectrum, one attribute per wavelength, and a `Spectrum` string meta naming each row. Rows in delta epsilon units (from the `Unit` meta or `spectrum_unit` attribute) or with names ending `_delta_epsilon` are fitted, so the output of the [Delta Epsilon](delta_epsilon.md) widget can be connected directly. Wavelengths are converted to nanometres using the table's `wavelength_unit`.
 
-The data must have a value at every whole nanometre in its range. Rows with missing values are ignored for that spectrum, and non-integer wavelengths (e.g. 0.5 nm steps) are thinned to whole nanometres.
+The data must have a value at every whole nanometre in its range. Missing values are ignored for that spectrum, and non-integer wavelengths (e.g. 0.5 nm steps) are thinned to whole nanometres.
 
 ## Controls
 
@@ -19,4 +19,4 @@ The data must have a value at every whole nanometre in its range. Rows with miss
 ## Outputs
 
 - **Secondary Structure**: one row per spectrum, with the structure fractions (names depend on the reference set), total helix and strand, RMSD and NRMSD of the fit. The Status and Message meta columns report spectra that could not be fitted.
-- **Fitted Spectra**: the measured and calculated delta epsilon spectra, with a `Wavelength` meta column, suitable for plotting.
+- **Fitted Spectra**: a spectra table with `sample | measured` and `sample | calculated` rows in delta epsilon units, suitable for the CD Spectra Plot.
