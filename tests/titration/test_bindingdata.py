@@ -238,6 +238,27 @@ class TestBindingData(orange_tests.WidgetTest):
         assert out is None
         assert self.widget.Error.incompatible_units.is_shown()
 
+    def test_delta_epsilon_series_is_used_directly(self):
+        names = [
+            "Background | sol_A_delta_epsilon",
+            "a | raw_data_delta_epsilon",
+            "b | raw_data_delta_epsilon",
+            "c | raw_data_delta_epsilon",
+        ]
+        unit = "liter / mole / centimeter"
+        table = spectra_table(names, CD, units=[unit] * 4, spectrum_unit=None)
+        table.attributes.update(spectra().attributes)
+        table.attributes.pop("spectrum_unit", None)
+        self.widget.data_series = "raw_data_delta_epsilon"
+        self.widget.solution_a_series = "sol_A_delta_epsilon"
+        out = self.run_widget(table)
+        assert not self.widget.Error.active
+        np.testing.assert_allclose(self.column(out, "Change in CD"), [0, 5, 10, 15])
+        np.testing.assert_allclose(self.column(out, "Delta Epsilon"), [0, 5, 10, 15])
+        np.testing.assert_allclose(
+            self.column(out, "Delta A"), np.array([0, 5, 10, 15]) * CONC_M
+        )
+
     def test_missing_spectrum_unit(self):
         table = spectra()
         del table.attributes["spectrum_unit"]

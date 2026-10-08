@@ -39,8 +39,8 @@ from .utils import (
 )
 
 # Preferred series, most-corrected first; used when nothing valid is saved.
-DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
-DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
+DEFAULT_DATA_SERIES = ("plus_sol_A_delta_epsilon", "raw_data")
+DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted_delta_epsilon", "sol_A")
 # Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
 
@@ -306,6 +306,15 @@ class OWBindingData(OWWidget):
             self.Error.invalid_conversion_metadata(name)
             return None
 
+    def _residue_ratio(self) -> float:
+        """Mean-residue / Solution A molecular weight used for delta epsilon."""
+        try:
+            mean_residue = table_quantity(self.spectra, "mean_residue_molecular_weight")
+            solution_a = table_quantity(self.spectra, "solution_a_molecular_weight")
+            return float((mean_residue / solution_a).to("dimensionless").magnitude)
+        except (KeyError, ValueError, TypeError):
+            return 1.0
+
     def _refresh_plot(self) -> None:
         self.plot.clear()
         wavelength_symbol = unit_symbol(self._wavelength_unit())
@@ -409,12 +418,15 @@ class OWBindingData(OWWidget):
                 ),
                 cd_unit,
             )
-            # Absorbance difference needs an angular CD signal, not delta
-            # epsilon.
-            cd.to(MDEG_PER_DELTA_A.units)
+            # Either an angular CD signal or a delta epsilon spectrum can be
+            # differenced; anything else cannot give a binding signal.
+            is_delta_epsilon = cd.check(DELTA_EPSILON_UNIT)
+            if not is_delta_epsilon:
+                cd.to(MDEG_PER_DELTA_A.units)
         except TypeError as exc:
             self.Error.incompatible_units(
-                f"The selected series must be in CD units (e.g. millidegree): {exc}"
+                "The selected series must be in CD units (e.g. millidegree) "
+                f"or delta epsilon units: {exc}"
             )
             self.Outputs.data.send(None)
             return
@@ -427,10 +439,20 @@ class OWBindingData(OWWidget):
         else:
             change[1:] = cd[1:] - cd[0]
 
-        delta_a = (change.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to(
-            "dimensionless"
-        )
-        delta_epsilon = (delta_a / (concentration * pathlength)).to(DELTA_EPSILON_UNIT)
+        if is_delta_epsilon:
+            delta_epsilon = change.to(DELTA_EPSILON_UNIT)
+            # Delta epsilon spectra are scaled to mean-residue values by the
+            # Delta Epsilon widget; undo that to recover the measured delta A.
+            delta_a = (
+                delta_epsilon * concentration * pathlength / self._residue_ratio()
+            ).to("dimensionless")
+        else:
+            delta_a = (change.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to(
+                "dimensionless"
+            )
+            delta_epsilon = (delta_a / (concentration * pathlength)).to(
+                DELTA_EPSILON_UNIT
+            )
         binding_stoichiometry = titration_point / (titration_point + 1.0)
 
         # CD Apps Origin data column 1:
