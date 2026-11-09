@@ -43,9 +43,13 @@ CONCENTRATION_COLUMN = "working_concentration_a"
 DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
 DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
 DELTA_EPSILON_SUFFIX = "delta_epsilon"
-DEFAULT_PATHLENGTH_CM = 1.0
+# The mean residue molecular weight has a standard value. The pathlength and
+# the Solution A molecular weight depend on the experiment, so they start
+# unset (0) and nothing is converted until they are entered.
+DEFAULT_PATHLENGTH_CM = 0.0
 DEFAULT_MEAN_RESIDUE_MW = 113.0
-DEFAULT_SOLUTION_A_MW = 1.0
+DEFAULT_SOLUTION_A_MW = 0.0
+UNSET_TEXT = "not set"
 
 
 def calculate_delta_epsilon(
@@ -127,6 +131,7 @@ class OWDeltaEpsilon(OWWidget):
         no_titration = Msg(
             "Connect a Titration Table to provide the Solution A concentration."
         )
+        missing_parameters = Msg("Enter the {} to calculate delta epsilon.")
         missing_concentration = Msg(
             f"The Titration Table input does not contain a '{CONCENTRATION_COLUMN}' column."
         )
@@ -195,11 +200,11 @@ class OWDeltaEpsilon(OWWidget):
             conversion_box, "Solution A concentration: connect a Titration Table"
         )
         self.concentration_label.setWordWrap(True)
-        gui.doubleSpin(
+        self.pathlength_spin = gui.doubleSpin(
             conversion_box,
             self,
             "pathlength_cm",
-            1e-12,
+            0.0,
             1e6,
             step=0.1,
             decimals=6,
@@ -219,11 +224,11 @@ class OWDeltaEpsilon(OWWidget):
             orientation=Qt.Horizontal,
             callback=self.commit.deferred,
         )
-        gui.doubleSpin(
+        self.solution_a_mw_spin = gui.doubleSpin(
             conversion_box,
             self,
             "solution_a_molecular_weight",
-            1e-12,
+            0.0,
             1e12,
             step=100.0,
             decimals=3,
@@ -231,6 +236,8 @@ class OWDeltaEpsilon(OWWidget):
             orientation=Qt.Horizontal,
             callback=self.commit.deferred,
         )
+        for spin in (self.pathlength_spin, self.solution_a_mw_spin):
+            spin.setSpecialValueText(UNSET_TEXT)
         equation = gui.widgetLabel(
             conversion_box,
             "Delta epsilon = (CD / 32980 mdeg) x mean residue molecular weight / "
@@ -394,6 +401,19 @@ class OWDeltaEpsilon(OWWidget):
             return
 
         if concentration is None:
+            self.Outputs.data.send(None)
+            return
+
+        unset = [
+            label
+            for label, value in (
+                ("pathlength", self.pathlength_cm),
+                ("Solution A molecular weight", self.solution_a_molecular_weight),
+            )
+            if not value > 0
+        ]
+        if unset:
+            self.Warning.missing_parameters(" and ".join(unset))
             self.Outputs.data.send(None)
             return
 

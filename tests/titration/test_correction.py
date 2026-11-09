@@ -209,6 +209,8 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         _, corrected = self.correct(loaded, titration(DILUTION, RATIO))
         tit = titration(DILUTION, RATIO)
         delta = self.create_widget(OWDeltaEpsilon)
+        delta.pathlength_cm = 1.0
+        delta.solution_a_molecular_weight = 1.0
         self.send_signal(delta.Inputs.titration, tit, widget=delta)
         self.send_signal(delta.Inputs.data, corrected, widget=delta)
         self.assertEqual(delta.data_series, "plus_sol_A")

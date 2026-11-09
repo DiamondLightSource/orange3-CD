@@ -87,6 +87,8 @@ class TestCalculation:
 class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWDeltaEpsilon)
+        self.widget.pathlength_cm = 1.0
+        self.widget.solution_a_molecular_weight = 1.0
 
     def run_widget(self, table=None, titration=None):
         table = spectra_table(NAMES, CD) if table is None else table
@@ -184,13 +186,29 @@ class TestWidget(orange_tests.WidgetTest):
 
     def test_invalid_parameter(self):
         self.run_widget()
-        self.widget.pathlength_cm = 0.0
+        self.widget.mean_residue_molecular_weight = 0.0
         self.widget.commit.now()
         assert self.widget.Error.invalid_parameter.is_shown()
         assert self.get_output(self.widget.Outputs.data, widget=self.widget) is None
-        self.widget.pathlength_cm = 1.0
+        self.widget.mean_residue_molecular_weight = 113.0
         self.widget.commit.now()
         assert not self.widget.Error.active
+
+    def test_unset_parameters_by_default(self):
+        widget = self.create_widget(OWDeltaEpsilon)
+        assert widget.pathlength_cm == 0.0
+        assert widget.solution_a_molecular_weight == 0.0
+        self.send_signal(widget.Inputs.titration, titration_table([0.5, 1.0]), widget=widget)
+        self.send_signal(widget.Inputs.data, spectra_table(NAMES, CD), widget=widget)
+        assert widget.Warning.missing_parameters.is_shown()
+        assert self.get_output(widget.Outputs.data, widget=widget) is None
+        widget.pathlength_cm = 1.0
+        widget.commit.now()
+        assert widget.Warning.missing_parameters.is_shown()  # MW still unset
+        widget.solution_a_molecular_weight = 1.0
+        widget.commit.now()
+        assert not widget.Warning.missing_parameters.is_shown()
+        assert self.get_output(widget.Outputs.data, widget=widget) is not None
 
     def test_stored_invalid_parameters_are_reset(self):
         widget = self.create_widget(
@@ -201,9 +219,9 @@ class TestWidget(orange_tests.WidgetTest):
                 "solution_a_molecular_weight": 0,
             },
         )
-        assert widget.pathlength_cm == 1.0
+        assert widget.pathlength_cm == 0.0
         assert widget.mean_residue_molecular_weight == 113.0
-        assert widget.solution_a_molecular_weight == 1.0
+        assert widget.solution_a_molecular_weight == 0.0
 
     def test_foreign_table(self):
         assert self.run_widget(Table("iris")) is None

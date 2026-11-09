@@ -36,6 +36,8 @@ class LoaderFixture:
 class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWDeltaEpsilon)
+        self.widget.pathlength_cm = 1.0
+        self.widget.solution_a_molecular_weight = 1.0
 
     def run_pipeline(self):
         import pathlib
