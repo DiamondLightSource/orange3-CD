@@ -77,6 +77,55 @@ class TestTableToDataframe:
         assert list(table_to_dataframe(table).columns) == ["a"]
 
 
+class TestHeaderUnits:
+    def test_variable_units_are_added(self):
+        conc = ContinuousVariable("Conc [B]")
+        conc.attributes["unit"] = "molar"
+        delta = ContinuousVariable("Delta Epsilon")
+        delta.attributes["unit"] = "liter / mole / centimeter"
+        point = ContinuousVariable("Titration point")  # no unit
+        ratio = ContinuousVariable("dilution_factor")
+        ratio.attributes["unit"] = "dimensionless"  # nothing worth showing
+        table = Table.from_numpy(
+            Domain([point, conc, delta, ratio]), np.ones((2, 4))
+        )
+        assert list(table_to_dataframe(table).columns) == [
+            "Titration point",
+            "Conc [B] (M)",
+            "Delta Epsilon (M\u207b\u00b9 cm\u207b\u00b9)",
+            "dilution_factor",
+        ]
+
+    def test_wavelength_columns_take_the_table_unit(self):
+        table = Table.from_numpy(
+            Domain([ContinuousVariable("230.0"), ContinuousVariable("240.0")]),
+            np.ones((1, 2)),
+        )
+        table.attributes["wavelength_unit"] = "nanometer"
+        assert list(table_to_dataframe(table).columns) == ["230.0 (nm)", "240.0 (nm)"]
+
+    def test_non_numeric_names_do_not_take_the_wavelength_unit(self):
+        table = Table.from_numpy(
+            Domain([ContinuousVariable("a")]), np.ones((1, 1))
+        )
+        table.attributes["wavelength_unit"] = "nanometer"
+        assert list(table_to_dataframe(table).columns) == ["a"]
+
+    def test_unit_pint_does_not_know_is_shown_as_written(self):
+        variable = ContinuousVariable("x")
+        variable.attributes["unit"] = "widgets per fortnight"
+        table = Table.from_numpy(Domain([variable]), np.ones((1, 1)))
+        assert list(table_to_dataframe(table).columns) == ["x (widgets per fortnight)"]
+
+
+class TestEmptyTable:
+    def test_table_without_columns(self):
+        table = Table.from_domain(Domain([]), 3)
+        frame = table_to_dataframe(table)
+        assert len(frame) == 3
+        assert len(frame.columns) == 0
+
+
 class TestWidget(orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWMultiSave)
@@ -134,6 +183,52 @@ class TestWidget(orange_tests.WidgetTest):
         assert sheets["Data"]["a"].tolist() == [1.0, 3.0]
         assert sheets["data (1)"]["a"].tolist() == [11.0, 13.0]
         assert sheets["Data"]["label"].tolist() == ["r1", "r2"]
+
+    def test_table_attributes_go_to_a_metadata_sheet(self):
+        first = small_table("Data")
+        first.attributes.update({"solution_a_concentration": "15.0 micromolar"})
+        second = small_table("Other")
+        second.attributes.update({"within_limit": True, "region": [1.0, 2.0]})
+        self.send(first, 0)
+        self.send(second, 1)
+        self.send(small_table("Plain"), 2)
+        self.save(str(self.tmp_path / "book"))
+        sheets = pd.read_excel(str(self.tmp_path / "book.xlsx"), sheet_name=None)
+        assert list(sheets) == ["Data", "Other", "Plain", "Metadata"]
+        meta = sheets["Metadata"]
+        assert list(meta.columns) == ["Sheet", "Attribute", "Value"]
+        assert meta.values.tolist() == [
+            ["Data", "solution_a_concentration", "15.0 micromolar"],
+            ["Other", "within_limit", "True"],
+            ["Other", "region", "[1.0, 2.0]"],
+        ]
+
+    def test_no_metadata_sheet_without_attributes(self):
+        self.send(small_table("Data"), 0)
+        self.save(str(self.tmp_path / "book"))
+        sheets = pd.read_excel(str(self.tmp_path / "book.xlsx"), sheet_name=None)
+        assert list(sheets) == ["Data"]
+
+    def test_metadata_sheet_name_does_not_clash(self):
+        table = small_table("Metadata")
+        table.attributes["k"] = "v"
+        self.send(table, 0)
+        self.save(str(self.tmp_path / "book"))
+        sheets = pd.read_excel(str(self.tmp_path / "book.xlsx"), sheet_name=None)
+        assert list(sheets) == ["Metadata", "Metadata (1)"]
+
+    def test_nothing_to_save_shows_error(self):
+        self.save(str(self.tmp_path / "book"))
+        assert self.widget.Error.save_failed.is_shown()
+        assert list(self.tmp_path.iterdir()) == []
+        self.send(small_table("Data"), 0)
+        self.save(str(self.tmp_path / "book"))
+        assert not self.widget.Error.save_failed.is_shown()
+
+    def test_unwritable_destination_shows_error(self):
+        self.send(small_table("Data"), 0)
+        self.save(str(self.tmp_path / "missing_folder" / "book"))
+        assert self.widget.Error.save_failed.is_shown()
 
     def test_extension_is_not_duplicated(self):
         self.send(small_table("Data"), 0)

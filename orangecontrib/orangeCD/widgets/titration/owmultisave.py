@@ -12,7 +12,41 @@ from AnyQt.QtWidgets import (
 from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.utils.tableview import TableView
-from Orange.widgets.widget import MultiInput, OWWidget
+from Orange.widgets.widget import Msg, MultiInput, OWWidget
+
+from ...units import Q_
+from .utils import DELTA_EPSILON_UNIT, WAVELENGTH_UNIT_KEY
+
+
+def unit_text(unit):
+    """Short display text for a unit string, e.g. ``"µM"``; empty if none."""
+    if not unit:
+        return ""
+    try:
+        units = Q_(1, unit).units
+        if units == Q_(1, DELTA_EPSILON_UNIT).units:
+            return "M\u207b\u00b9 cm\u207b\u00b9"  # the conventional form
+        return f"{units:~}"
+    except Exception:  # not a unit pint understands: show it as written
+        return str(unit)
+
+
+def column_header(variable, wavelength_unit=None):
+    """Column name with the unit of the variable, e.g. ``"Conc [B] (M)"``.
+
+    Spectra tables name their attributes by wavelength, which has no unit of
+    its own; it takes the table's wavelength unit instead.
+    """
+    unit = variable.attributes.get("unit")
+    if not unit and wavelength_unit and variable.is_continuous:
+        try:
+            float(variable.name)
+        except ValueError:
+            pass
+        else:
+            unit = wavelength_unit
+    text = unit_text(unit)
+    return f"{variable.name} ({text})" if text else variable.name
 
 
 def table_to_dataframe(table):
@@ -21,20 +55,27 @@ def table_to_dataframe(table):
 
     blocks = []
 
+    wavelength_unit = table.attributes.get(WAVELENGTH_UNIT_KEY)
+
     if len(table.domain.attributes):
-        columns.extend(var.name for var in table.domain.attributes)
+        columns.extend(
+            column_header(var, wavelength_unit) for var in table.domain.attributes
+        )
 
         blocks.append(table.X)
 
     if len(table.domain.class_vars):
-        columns.extend(var.name for var in table.domain.class_vars)
+        columns.extend(column_header(var) for var in table.domain.class_vars)
 
         blocks.append(table.Y.reshape(len(table), -1))
 
     if len(table.domain.metas):
-        columns.extend(var.name for var in table.domain.metas)
+        columns.extend(column_header(var) for var in table.domain.metas)
 
         blocks.append(table.metas)
+
+    if not blocks:
+        return pd.DataFrame(index=range(len(table)))
 
     matrix = np.hstack(blocks)
 
@@ -42,6 +83,25 @@ def table_to_dataframe(table):
         matrix,
         columns=columns,
     )
+
+
+METADATA_SHEET = "Metadata"
+
+
+def metadata_dataframe(sheet_names, tables):
+    """One row per table attribute, naming the sheet it belongs to.
+
+    Attributes carry the concentration, pathlength, units and other values
+    that the column headers cannot hold. Returns None if there are none.
+    """
+    rows = [
+        (sheet_name, str(key), str(value))
+        for sheet_name, table in zip(sheet_names, tables)
+        for key, value in table.attributes.items()
+    ]
+    if not rows:
+        return None
+    return pd.DataFrame(rows, columns=["Sheet", "Attribute", "Value"])
 
 
 def make_unique_sheet_names(names):
@@ -183,8 +243,6 @@ class SheetListModel(QAbstractTableModel):
     def update_table(self, position, table):
 
         if position >= len(self.items):
-            print("MODEL update -> extending model")
-
             self.insert_table(position, table)
             return
 
@@ -225,6 +283,9 @@ class OWMultiSave(OWWidget):
 
     class Inputs:
         data = MultiInput("Data", Table)
+
+    class Error(OWWidget.Error):
+        save_failed = Msg("{}")
 
     def __init__(self):
         super().__init__()
@@ -287,6 +348,13 @@ class OWMultiSave(OWWidget):
     # --------------------------------------------------
 
     def save_workbook(self):
+        self.Error.save_failed.clear()
+
+        valid_items = [item for item in self.model.items if item["table"] is not None]
+        if not valid_items:
+            self.Error.save_failed("There are no tables to save.")
+            return
+
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Save Workbook",
@@ -300,21 +368,26 @@ class OWMultiSave(OWWidget):
         if not filename.endswith(".xlsx"):
             filename += ".xlsx"
 
-        valid_items = [item for item in self.model.items if item["table"] is not None]
-        sheet_names = make_unique_sheet_names(
-            [item["sheet_name"] for item in valid_items]
+        tables = [item["table"] for item in valid_items]
+        # The metadata sheet is named together with the others so that it can
+        # never clash with a table's sheet.
+        *sheet_names, metadata_name = make_unique_sheet_names(
+            [*(item["sheet_name"] for item in valid_items), METADATA_SHEET]
         )
+        metadata = metadata_dataframe(sheet_names, tables)
 
-        with pd.ExcelWriter(
-            filename,
-            engine="openpyxl",
-        ) as writer:
-            for item, sheet_name in zip(valid_items, sheet_names):
-                table = item["table"]
-
-                df = table_to_dataframe(table)
-                df.to_excel(
-                    writer,
-                    sheet_name=sheet_name,
-                    index=False,
-                )
+        try:
+            with pd.ExcelWriter(
+                filename,
+                engine="openpyxl",
+            ) as writer:
+                for table, sheet_name in zip(tables, sheet_names):
+                    table_to_dataframe(table).to_excel(
+                        writer,
+                        sheet_name=sheet_name,
+                        index=False,
+                    )
+                if metadata is not None:
+                    metadata.to_excel(writer, sheet_name=metadata_name, index=False)
+        except (OSError, ValueError) as exc:
+            self.Error.save_failed(f"Could not save the workbook: {exc}")
