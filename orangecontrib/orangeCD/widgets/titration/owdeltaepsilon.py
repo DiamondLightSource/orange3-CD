@@ -17,6 +17,7 @@ from .utils import (
     DELTA_EPSILON_UNIT,
     MDEG_PER_DELTA_A,
     PATHLENGTH_KEY,
+    SOLUTION_A_MW_KEY,
     SPECTRUM_UNIT_KEY,
     UNIT_META,
     InvalidWavelength,
@@ -27,6 +28,7 @@ from .utils import (
     reference_spectrum,
     spectrum_units,
     split_series_name,
+    table_quantity,
     unit_string,
 )
 from .utils import (
@@ -238,6 +240,8 @@ class OWDeltaEpsilon(OWWidget):
         )
         for spin in (self.pathlength_spin, self.solution_a_mw_spin):
             spin.setSpecialValueText(UNSET_TEXT)
+        self.source_label = gui.widgetLabel(conversion_box, "")
+        self.source_label.setWordWrap(True)
         equation = gui.widgetLabel(
             conversion_box,
             "Delta epsilon = (CD / 32980 mdeg) x mean residue molecular weight / "
@@ -279,6 +283,54 @@ class OWDeltaEpsilon(OWWidget):
         if len(values) == 0 or not np.isfinite(values[0]):
             return None
         return Q_(float(values[0]), unit)
+
+    def _table_parameter(self, key: str, unit: str) -> Quantity | None:
+        """A parameter stored on the Titration Table, or None."""
+        if self.titration_data is None:
+            return None
+        try:
+            return table_quantity(self.titration_data, key).to(unit)
+        except (KeyError, ValueError, TypeError):
+            return None
+
+    def _parameters(self) -> dict[str, tuple[Quantity | None, bool]]:
+        """Pathlength and Solution A molecular weight, and where each is from.
+
+        A value on the Titration Table (set in the Titration Calculator) takes
+        priority over the one entered here.
+        """
+        parameters = {}
+        for name, key, unit, entered in (
+            ("pathlength", PATHLENGTH_KEY, PATHLENGTH_UNIT, self.pathlength_cm),
+            (
+                "Solution A molecular weight",
+                SOLUTION_A_MW_KEY,
+                MOLECULAR_WEIGHT_UNIT,
+                self.solution_a_molecular_weight,
+            ),
+        ):
+            from_table = self._table_parameter(key, unit)
+            if from_table is not None:
+                parameters[name] = (from_table, True)
+            else:
+                parameters[name] = (Q_(entered, unit) if entered > 0 else None, False)
+        return parameters
+
+    def _show_parameter_sources(self, parameters) -> None:
+        provided = [name for name, (_, from_table) in parameters.items() if from_table]
+        self.pathlength_spin.setEnabled(parameters["pathlength"][1] is False)
+        self.solution_a_mw_spin.setEnabled(
+            parameters["Solution A molecular weight"][1] is False
+        )
+        self.source_label.setText(
+            ""
+            if not provided
+            else "From the Titration Table: "
+            + ", ".join(
+                f"{name} {parameters[name][0]:~g}" for name in provided
+            )
+            + ". Remove them there to enter your own."
+        )
 
     def _update_series_controls(self) -> None:
         stages: list[str] = []
@@ -362,6 +414,8 @@ class OWDeltaEpsilon(OWWidget):
         self.Warning.clear()
 
         concentration = self._solution_a_concentration()
+        parameters = self._parameters()
+        self._show_parameter_sources(parameters)
         if self.titration_data is None:
             self.Warning.no_titration()
             self.concentration_label.setText(
@@ -404,14 +458,7 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        unset = [
-            label
-            for label, value in (
-                ("pathlength", self.pathlength_cm),
-                ("Solution A molecular weight", self.solution_a_molecular_weight),
-            )
-            if not value > 0
-        ]
+        unset = [name for name, (value, _) in parameters.items() if value is None]
         if unset:
             self.Warning.missing_parameters(" and ".join(unset))
             self.Outputs.data.send(None)
@@ -430,9 +477,9 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        pathlength = Q_(self.pathlength_cm, PATHLENGTH_UNIT)
+        pathlength = parameters["pathlength"][0]
+        solution_a_mw = parameters["Solution A molecular weight"][0]
         mean_residue_mw = Q_(self.mean_residue_molecular_weight, MOLECULAR_WEIGHT_UNIT)
-        solution_a_mw = Q_(self.solution_a_molecular_weight, MOLECULAR_WEIGHT_UNIT)
         try:
             # (n_spectra, n_wavelengths), each row in its own unit.
             raw_values = self.data.X[raw_variables_idx]
@@ -474,7 +521,7 @@ class OWDeltaEpsilon(OWWidget):
                 CONCENTRATION_KEY: quantity_string(concentration),
                 PATHLENGTH_KEY: quantity_string(pathlength),
                 "mean_residue_molecular_weight": quantity_string(mean_residue_mw),
-                "solution_a_molecular_weight": quantity_string(solution_a_mw),
+                SOLUTION_A_MW_KEY: quantity_string(solution_a_mw),
             }
         )
         self.Outputs.data.send(output)

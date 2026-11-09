@@ -194,6 +194,53 @@ class TestWidget(orange_tests.WidgetTest):
         self.widget.commit.now()
         assert not self.widget.Error.active
 
+    def with_parameters(self, pathlength=None, mw=None):
+        titration = titration_table([0.5, 1.0])
+        if pathlength is not None:
+            titration.attributes[PATHLENGTH_KEY] = f"{pathlength} centimeter"
+        if mw is not None:
+            titration.attributes["solution_a_molecular_weight"] = f"{mw} gram / mole"
+        return titration
+
+    def test_parameters_from_titration_table_are_used(self):
+        # The entered values (1 cm, 1 g/mol) must be ignored.
+        out = self.run_widget(titration=self.with_parameters(2.0, 2.0))
+        assert not self.widget.Error.active
+        np.testing.assert_allclose(out.X[3:], expected(CD, pathlength=2.0, mw_a=2.0))
+        assert table_quantity(out, PATHLENGTH_KEY).to("centimeter").magnitude == 2.0
+        assert not self.widget.pathlength_spin.isEnabled()
+        assert not self.widget.solution_a_mw_spin.isEnabled()
+        assert "Titration Table" in self.widget.source_label.text()
+
+    def test_titration_table_parameters_make_entered_ones_unnecessary(self):
+        widget = self.create_widget(OWDeltaEpsilon)  # nothing entered
+        self.send_signal(
+            widget.Inputs.titration, self.with_parameters(1.0, 1.0), widget=widget
+        )
+        self.send_signal(widget.Inputs.data, spectra_table(NAMES, CD), widget=widget)
+        assert not widget.Warning.missing_parameters.is_shown()
+        assert self.get_output(widget.Outputs.data, widget=widget) is not None
+
+    def test_only_one_parameter_from_the_table(self):
+        out = self.run_widget(titration=self.with_parameters(pathlength=2.0))
+        np.testing.assert_allclose(out.X[3:], expected(CD, pathlength=2.0))
+        assert not self.widget.pathlength_spin.isEnabled()
+        assert self.widget.solution_a_mw_spin.isEnabled()
+
+    def test_entered_parameters_return_when_the_table_has_none(self):
+        self.run_widget(titration=self.with_parameters(2.0, 2.0))
+        out = self.run_widget(titration=self.with_parameters())
+        np.testing.assert_allclose(out.X[3:], expected(CD))
+        assert self.widget.pathlength_spin.isEnabled()
+        assert self.widget.source_label.text() == ""
+
+    def test_invalid_table_parameter_falls_back_to_entered_value(self):
+        titration = self.with_parameters()
+        titration.attributes[PATHLENGTH_KEY] = "nonsense"
+        out = self.run_widget(titration=titration)
+        np.testing.assert_allclose(out.X[3:], expected(CD))
+        assert self.widget.pathlength_spin.isEnabled()
+
     def test_unset_parameters_by_default(self):
         widget = self.create_widget(OWDeltaEpsilon)
         assert widget.pathlength_cm == 0.0

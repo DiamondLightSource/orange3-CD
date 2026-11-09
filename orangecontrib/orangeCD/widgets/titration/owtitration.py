@@ -15,7 +15,7 @@ from Orange.widgets.widget import Msg, Output, OWWidget
 from pint import Quantity
 
 from ...units import Q_
-from .utils import quantity_string
+from .utils import PATHLENGTH_KEY, SOLUTION_A_MW_KEY, quantity_string
 
 
 def _round_quantity(quantity: Quantity, unit: str, digits: int) -> Quantity:
@@ -38,6 +38,9 @@ def round_concentration(concentration: Quantity) -> Quantity:
     """Round a concentration to 0.1 uM."""
     return _round_quantity(concentration, "micromolar", 1)
 
+
+PATHLENGTH_UNIT = "centimeter"
+MOLECULAR_WEIGHT_UNIT = "gram / mole"
 
 # Default pipetting range used to choose a Stock B solution.
 DEFAULT_TARGET_MIN = Quantity(2.0, "microlitres")
@@ -647,6 +650,10 @@ class OWTitrationCalculator(OWWidget):
     target_min_volume_value = Setting("2.0")
     target_max_volume_value = Setting("20.0")
 
+    # Optional experiment details, passed on for the later widgets to use.
+    pathlength_value = Setting("")
+    solution_a_mw_value = Setting("")
+
     mode = Setting("increasing")
 
     @property
@@ -724,6 +731,17 @@ class OWTitrationCalculator(OWWidget):
             ("Stock B molar equivalent", "stock_b_molar_equiv", None),
             ("Target minimum volume", "target_min_volume_value", "volume"),
             ("Target maximum volume", "target_max_volume_value", "volume"),
+            (
+                f"Cell pathlength ({self._fixed_unit_symbol(PATHLENGTH_UNIT)}, optional)",
+                "pathlength_value",
+                None,
+            ),
+            (
+                "Solution A molecular weight "
+                f"({self._fixed_unit_symbol(MOLECULAR_WEIGHT_UNIT)}, optional)",
+                "solution_a_mw_value",
+                None,
+            ),
         ):
             row = gui.hBox(box)
             label_widget = gui.widgetLabel(row, label)
@@ -759,6 +777,41 @@ class OWTitrationCalculator(OWWidget):
 
     def _ratios_changed(self):
         self.ratios = self.ratios_editor.toPlainText().strip()
+
+    @staticmethod
+    def _fixed_unit_symbol(unit_name):
+        return f"{Q_(1, unit_name).units:~}"
+
+    @staticmethod
+    def _optional_quantity(text, unit, name):
+        """A positive quantity from ``text``, or None if it is blank."""
+        text = text.strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be a number") from exc
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be greater than zero")
+        return Q_(value, unit)
+
+    def _experiment_attributes(self):
+        """The optional pathlength and molecular weight, as table attributes."""
+        attributes = {}
+        for key, text, unit, name in (
+            (PATHLENGTH_KEY, self.pathlength_value, PATHLENGTH_UNIT, "Pathlength"),
+            (
+                SOLUTION_A_MW_KEY,
+                self.solution_a_mw_value,
+                MOLECULAR_WEIGHT_UNIT,
+                "Solution A molecular weight",
+            ),
+        ):
+            quantity = self._optional_quantity(text, unit, name)
+            if quantity is not None:
+                attributes[key] = quantity_string(quantity)
+        return attributes
 
     def _unit_symbol(self, unit_kind):
         unit_name = self._volume_unit if unit_kind == "volume" else self._conc_unit
@@ -831,6 +884,10 @@ class OWTitrationCalculator(OWWidget):
             )
             result = calculator.calculate(mode=mode, points=points)
             dataframe, units = result.result_to_dataframe()
+            attributes = {
+                **result.result_attributes(),
+                **self._experiment_attributes(),
+            }
         except (TypeError, ValueError) as exc:
             self.table_model.set_dataframe(pd.DataFrame())
             self.summary_label.setText("No result")
@@ -849,7 +906,7 @@ class OWTitrationCalculator(OWWidget):
             summary += f" | Initial buffer volume: {result.volume_buffer:g} | Added volume within 15% limit: {'yes' if result.within_limit else 'no'}"
         self.summary_label.setText(summary)
         self.Outputs.data.send(
-            self._to_orange_table(dataframe, units, result.result_attributes())
+            self._to_orange_table(dataframe, units, attributes)
         )
 
     @staticmethod

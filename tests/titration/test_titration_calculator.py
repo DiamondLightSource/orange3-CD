@@ -286,6 +286,32 @@ class TestCalculatorWidget(orange_tests.WidgetTest):
                 assert self.widget.Error.invalid_input.is_shown()
                 assert self.widget.table_model.rowCount() == 0
 
+    def test_experiment_details_are_blank_by_default(self):
+        table = self.calculate()
+        assert "pathlength" not in table.attributes
+        assert "solution_a_molecular_weight" not in table.attributes
+
+    def test_experiment_details_are_passed_on_with_units(self):
+        table = self.calculate(pathlength_value="0.1", solution_a_mw_value="35000")
+        assert not self.widget.Error.active
+        assert Q_(table.attributes["pathlength"]).to("centimeter").magnitude == 0.1
+        mw = Q_(table.attributes["solution_a_molecular_weight"])
+        assert mw.to("gram / mole").magnitude == 35000
+        # The calculation attributes are still there.
+        assert table.attributes["mode"] == "increasing"
+
+    def test_invalid_experiment_details_show_error(self):
+        for settings in (
+            {"pathlength_value": "abc"},
+            {"pathlength_value": "0"},
+            {"solution_a_mw_value": "-5"},
+            {"solution_a_mw_value": "nan"},
+        ):
+            with self.subTest(**settings):
+                self.setUp()
+                assert self.calculate(**settings) is None
+                assert self.widget.Error.invalid_input.is_shown()
+
     def test_error_clears_after_valid_input(self):
         self.calculate(ratios="abc")
         assert self.widget.Error.invalid_input.is_shown()

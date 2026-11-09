@@ -10,6 +10,8 @@ On the boxes on the left of the widget in the `Titration inputs` section, add th
     * this is a comma separated list of values, ie. `0.1, 0.2, 0.3...`
  - The titration mode.
     * This is either `Fixed` or `Increasing`, as selected from the drop down menu.
+ - Optionally, the cell pathlength (cm) and the Solution A molecular weight (g/mol).
+    * These do not change the titration table. They are stored on it as attributes so that later widgets (currently [Delta Epsilon](delta_epsilon.md)) can use them, which means they only have to be entered once. Leave them blank to enter them in those widgets instead.
 
 
 Once all this information is added, you can click the `Calculate` button on the bottom left of the widget, which will generate a table. 
@@ -39,6 +41,8 @@ Values that are the same for every titration point are stored as attributes of t
 |Attribute|Mode|Description|
 |-|-|-|
 |`mode`|both| Whether the table has been set up for an experiment in `fixed` or `increasing` mode. |
+|`pathlength`|both| The cell pathlength, if entered. |
+|`solution_a_molecular_weight`|both| The molecular weight of Solution A, if entered. |
 |`volume_solution_a`|both| The initial volume of Solution A that is added to the cell at the start of the experiment. |
 |`volume_buffer`|increasing| The initial volume of the buffer solution that is added to the cell. |
 |`max_volume_allowed`|increasing| The maximum total volume of Stock B that can be added to the cell (15% of the starting cell volume). |

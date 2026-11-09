@@ -23,6 +23,7 @@ WAVELENGTH_UNIT_KEY = "wavelength_unit"
 SPECTRUM_UNIT_KEY = "spectrum_unit"
 CONCENTRATION_KEY = "solution_a_concentration"
 PATHLENGTH_KEY = "pathlength"
+SOLUTION_A_MW_KEY = "solution_a_molecular_weight"
 MEASUREMENT_WAVELENGTH_KEY = "measurement_wavelength"
 
 # CD signal that corresponds to one unit of absorbance difference.
