@@ -259,6 +259,30 @@ class TestBindingData(orange_tests.WidgetTest):
             self.column(out, "Delta A"), np.array([0, 5, 10, 15]) * CONC_M
         )
 
+    def test_delta_epsilon_series_is_unscaled_to_match_cd_input(self):
+        names = [
+            "Background | sol_A_delta_epsilon",
+            "a | raw_data_delta_epsilon",
+            "b | raw_data_delta_epsilon",
+            "c | raw_data_delta_epsilon",
+        ]
+        unit = "liter / mole / centimeter"
+        table = spectra_table(names, CD, units=[unit] * 4, spectrum_unit=None)
+        table.attributes.update(spectra().attributes)
+        table.attributes.pop("spectrum_unit", None)
+        table.attributes["mean_residue_molecular_weight"] = "113.0 gram / mole"
+        table.attributes["solution_a_molecular_weight"] = "1130.0 gram / mole"
+        self.widget.data_series = "raw_data_delta_epsilon"
+        self.widget.solution_a_series = "sol_A_delta_epsilon"
+        out = self.run_widget(table)
+        assert not self.widget.Error.active
+        # mean residue / Solution A molecular weight = 0.1
+        change = np.array([0, 5, 10, 15])
+        np.testing.assert_allclose(self.column(out, "Delta Epsilon"), change / 0.1)
+        np.testing.assert_allclose(
+            self.column(out, "Delta A"), change / 0.1 * CONC_M
+        )
+
     def test_missing_spectrum_unit(self):
         table = spectra()
         del table.attributes["spectrum_unit"]

@@ -39,8 +39,8 @@ from .utils import (
 )
 
 # Preferred series, most-corrected first; used when nothing valid is saved.
-DEFAULT_DATA_SERIES = ("plus_sol_A_delta_epsilon", "raw_data")
-DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted_delta_epsilon", "sol_A")
+DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
+DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
 # Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
 
@@ -440,12 +440,11 @@ class OWBindingData(OWWidget):
             change[1:] = cd[1:] - cd[0]
 
         if is_delta_epsilon:
-            delta_epsilon = change.to(DELTA_EPSILON_UNIT)
             # Delta epsilon spectra are scaled to mean-residue values by the
-            # Delta Epsilon widget; undo that to recover the measured delta A.
-            delta_a = (
-                delta_epsilon * concentration * pathlength / self._residue_ratio()
-            ).to("dimensionless")
+            # Delta Epsilon widget; undo that so that the Delta A and Delta
+            # Epsilon columns mean the same as for a CD input.
+            delta_epsilon = (change / self._residue_ratio()).to(DELTA_EPSILON_UNIT)
+            delta_a = (delta_epsilon * concentration * pathlength).to("dimensionless")
         else:
             delta_a = (change.to(MDEG_PER_DELTA_A.units) / MDEG_PER_DELTA_A).to(
                 "dimensionless"
