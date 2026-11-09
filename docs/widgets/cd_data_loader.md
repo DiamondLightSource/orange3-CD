@@ -15,7 +15,7 @@ Spectra of Solution A, Solution B and the buffer can be loaded with the `Browse.
 The `Titration data files` section loads the data files from the experiment. The file browser is opened using the `Select files...` button.
 
 > [!NOTE]
-> The loaded data files are sorted according to their name.
+> The loaded data files are sorted according to their name. Select a file in the list and use `Move up` / `Move down` to change the order. The order of the files must match the order of the rows in the Titration Table.
 
 ### Units of the data files
 

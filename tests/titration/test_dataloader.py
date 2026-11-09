@@ -138,6 +138,33 @@ class TestLoaderWidget(orange_tests.WidgetTest):
         self.widget._load_and_plot_raw_data()
         self.widget.commit()
 
+    def test_move_selected_reorders_output(self):
+        self.load(4)
+        self.widget.selected_data_files = [1]
+        self.widget._move_selected(-1)
+        assert self.widget.data_file_names == ["2.csv", "1.csv", "3.csv", "4.csv"]
+        assert list(self.widget.selected_data_files) == [0]
+        assert spectrum_names(self.output())[:2] == [
+            "2.csv | raw_data",
+            "1.csv | raw_data",
+        ]
+
+    def test_move_selected_block_down(self):
+        self.load(4)
+        self.widget.selected_data_files = [1, 2]
+        self.widget._move_selected(1)
+        assert self.widget.data_file_names == ["1.csv", "4.csv", "2.csv", "3.csv"]
+        assert list(self.widget.selected_data_files) == [2, 3]
+
+    def test_move_selected_stops_at_the_ends(self):
+        self.load(3)
+        self.widget.selected_data_files = [0]
+        self.widget._move_selected(-1)
+        assert self.widget.data_file_names == ["1.csv", "2.csv", "3.csv"]
+        self.widget.selected_data_files = [2]
+        self.widget._move_selected(1)
+        assert self.widget.data_file_names == ["1.csv", "2.csv", "3.csv"]
+
     def test_empty(self):
         assert self.output() is None
         assert not self.widget.Error.active

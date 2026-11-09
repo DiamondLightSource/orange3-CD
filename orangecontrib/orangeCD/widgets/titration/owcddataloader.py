@@ -213,6 +213,20 @@ class OWCDDataLoader(OWWidget):
         self.data_file_list.setMinimumHeight(150)
         buttons = gui.hBox(data_box)
         gui.button(buttons, self, "Select files…", callback=self._choose_data_files)
+        gui.button(
+            buttons,
+            self,
+            "Move up",
+            callback=lambda: self._move_selected(-1),
+            tooltip="Move the selected files up the list.",
+        )
+        gui.button(
+            buttons,
+            self,
+            "Move down",
+            callback=lambda: self._move_selected(1),
+            tooltip="Move the selected files down the list.",
+        )
         gui.button(buttons, self, "Clear", callback=self._clear_data_files)
 
         units_box = gui.widgetBox(self.controlArea, "Units of the data files")
@@ -295,6 +309,33 @@ class OWCDDataLoader(OWWidget):
             self._refresh_file_list()
             self._load_and_plot_raw_data()
             self.commit()
+
+    def _move_selected(self, step: int) -> None:
+        """Move the selected files one place up (-1) or down (+1).
+
+        The order of the list is the order of the titration points, so it
+        must match the rows of the Titration Table.
+        """
+        items = [
+            (path, index in self.selected_data_files)
+            for index, path in enumerate(self.data_files)
+        ]
+        # Swap each selected item with an unselected neighbour, starting from
+        # the end it is moving towards, so that adjacent selections move together.
+        indices = range(1, len(items)) if step < 0 else range(len(items) - 2, -1, -1)
+        changed = False
+        for index in indices:
+            neighbour = index + step
+            if items[index][1] and not items[neighbour][1]:
+                items[index], items[neighbour] = items[neighbour], items[index]
+                changed = True
+        if not changed:
+            return
+        self.data_files = [path for path, _ in items]
+        self.data_file_names = [Path(path).name for path in self.data_files]
+        self.selected_data_files = [i for i, (_, chosen) in enumerate(items) if chosen]
+        self._load_and_plot_raw_data()
+        self.commit()
 
     def _clear_data_files(self) -> None:
         self.data_files = []
