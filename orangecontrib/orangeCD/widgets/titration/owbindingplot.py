@@ -274,8 +274,8 @@ class OWBindingPlot(OWWidget):
     y_variable = Setting(DEFAULT_Y)
     point_size = Setting(9)
     line_width = Setting(2.0)
-    fitter_function = Setting(0)
-    fit_model = Setting("Hill model (3 variable)")
+    # Index into ``fit_model_dict``.
+    fit_model = Setting(0)
 
     class Error(OWWidget.Error):
         no_continuous_data = Msg("Input contains no continuous variables.")
@@ -362,14 +362,16 @@ class OWBindingPlot(OWWidget):
             },
         }
         self.fit_model_list = tuple(i["text"] for i in self.fit_model_dict.values())
+        if self.fit_model not in self.fit_model_dict:
+            self.fit_model = 0
         # need to initialise these here otherwise get mixed up in class, possibly
-        self.fit_model_func = self.fit_model_dict.get(self.fitter_function).get(
+        self.fit_model_func = self.fit_model_dict.get(self.fit_model).get(
             "function"
         )
-        self.fit_model_fitter = self.fit_model_dict.get(self.fitter_function).get(
+        self.fit_model_fitter = self.fit_model_dict.get(self.fit_model).get(
             "fitter"
         )
-        self.equation_str = self.fit_model_dict.get(self.fitter_function).get(
+        self.equation_str = self.fit_model_dict.get(self.fit_model).get(
             "equation"
         )
 

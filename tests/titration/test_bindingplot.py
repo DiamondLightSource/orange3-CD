@@ -264,6 +264,22 @@ class TestWidget(orange_tests.WidgetTest):
         values, _ = parameters(self.output())
         assert "bottom" in values and "top" in values
 
+    def test_model_survives_settings_reload(self):
+        self.widget.fit_model = 2
+        self.widget._select_fit_model_changed()
+        settings = self.widget.settingsHandler.pack_data(self.widget)
+        reloaded = self.create_widget(OWBindingPlot, stored_settings=settings)
+        assert reloaded.fit_model == 2
+        assert reloaded.fit_model_fitter is fit_bihill
+        assert "p_m" in reloaded.equation.text()
+
+    def test_legacy_model_name_setting_falls_back_to_default(self):
+        reloaded = self.create_widget(
+            OWBindingPlot, stored_settings={"fit_model": "Hill model (3 variable)"}
+        )
+        assert reloaded.fit_model == 0
+        assert reloaded.fit_model_fitter is fit_hill
+
     def test_non_continuous_selection_is_invalid(self):
         self.send(binding_table())
         with self.assertWarns(UserWarning):  # Orange warns about the stale value
