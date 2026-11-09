@@ -44,6 +44,15 @@ class TestParsers:
             "/d/10 equiv.csv",
         ]
 
+    def test_natural_key_reads_decimals_as_one_number(self):
+        names = ["0.3 equiv.csv", "1.05 equiv.csv", "0.25 equiv.csv", "1.5 equiv.csv"]
+        assert sorted(names, key=natural_key) == [
+            "0.25 equiv.csv",
+            "0.3 equiv.csv",
+            "1.05 equiv.csv",
+            "1.5 equiv.csv",
+        ]
+
     def test_file_parser_and_average(self, tmp_path):
         path = tmp_path / "s.csv"
         write_csv(path, [1.0, 2.0, 3.0, 4.0])

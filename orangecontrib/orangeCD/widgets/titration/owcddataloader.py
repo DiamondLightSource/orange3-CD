@@ -111,10 +111,17 @@ def average_cd_series(filename: str) -> pd.Series:
     return series.rename(Path(filename).name)
 
 
+_NUMBER = re.compile(r"(\d+(?:\.\d+)?)")
+
+
 def natural_key(path: str) -> list[object]:
+    """Sort key that orders numbers in a file name by value.
+
+    Decimals are read as one number, so ``0.25`` sorts before ``0.3``.
+    """
     return [
-        int(part) if part.isdigit() else part.lower()
-        for part in re.split(r"(\d+)", Path(path).name)
+        float(part) if index % 2 else part.lower()
+        for index, part in enumerate(_NUMBER.split(Path(path).name))
     ]
 
 
