@@ -2,7 +2,7 @@
 
 Orange3 add on for Circular Dichroism analysis. Currently under development.
 
-The widgets are documented in [docs/widgets](docs/widgets). They are grouped in two categories: *CD Titration* (data loading, correction, titration calculation, binding data and fitting) and *CD Core* ([Secondary Structure](docs/widgets/secondary_structure.md) analysis).
+The widgets are documented in [docs/widgets](docs/widgets). A [glossary](docs/widgets/glossary.md) explains the symbols and acronyms used (ΔA, Δε, mean-residue Δε, molar ratio and so on). They are grouped in two categories: *CD Titration* (data loading, correction, titration calculation, binding data and fitting) and *CD Core* ([Secondary Structure](docs/widgets/secondary_structure.md) analysis).
 
 
 ### Current TODO
