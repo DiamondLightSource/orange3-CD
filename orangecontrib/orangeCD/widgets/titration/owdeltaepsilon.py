@@ -28,6 +28,7 @@ from .utils import (
     reference_spectrum,
     spectrum_units,
     split_series_name,
+    spectrum_points,
     table_quantity,
     unit_string,
 )
@@ -400,6 +401,14 @@ class OWDeltaEpsilon(OWWidget):
     def _solution_a_variable(self) -> tuple[int, str] | None:
         return reference_spectrum(self._variables_matching(self.solution_a_series))
 
+    def _output_points(self, rows: list[int]) -> np.ndarray | None:
+        """Titration point of each output row: the selected rows, then their
+        delta epsilon versions."""
+        points = spectrum_points(self.data)
+        if points is None:
+            return None
+        return np.concatenate((points[rows], points[rows]))
+
     @staticmethod
     def _delta_name(variable: str) -> str:
         parsed = split_series_name(variable)
@@ -507,6 +516,7 @@ class OWDeltaEpsilon(OWWidget):
             np.vstack((raw_values, converted)),
             [*raw_variable_names, *delta_names],
             [*raw_units, *[delta_unit] * len(delta_names)],
+            points=self._output_points(raw_variables_idx),
         )
         output.name = (
             f"{self.data.name} - CD and delta epsilon"

@@ -104,6 +104,7 @@ Other terms:
 | **Zero-level offset** | A constant that is subtracted so that the spectrum is zero where the sample does not absorb, normally at long wavelengths. |
 | **Lazy process** | The option in [CD Data Correction](cd_data_correction.md) that finds the flattest stretch of each spectrum and subtracts its mean as a zero-level offset. |
 | **`Spectrum` meta** | The string column that names each row of a spectra table. |
+| **`Point` meta** | The number of the titration point (the row of the Titration Table) that a data spectrum belongs to. It is added by the CD Data Loader when the Titration Table is connected, and lets later widgets pair spectra with table rows by number rather than by order. |
 | **`Unit` meta** | The string column that gives the unit of each row, for tables that mix millidegrees and Δε. |
 | **Table attributes** | Values stored on a whole table rather than a column, such as `wavelength_unit`, `spectrum_unit`, `solution_a_concentration` and `pathlength`. They are how information travels from one widget to the next. |
 

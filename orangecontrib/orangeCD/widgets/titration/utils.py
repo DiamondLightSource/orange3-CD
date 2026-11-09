@@ -9,13 +9,16 @@ the form ``sample | processing_stage``.
 from __future__ import annotations
 
 import numpy as np
-from Orange.data import Domain, StringVariable, Table
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from pint import Quantity
 
 from ...units import Q_
 
 SPECTRUM_META = "Spectrum"
 UNIT_META = "Unit"
+# Number of the titration point (1 for the first row of the Titration Table)
+# that a data spectrum belongs to. NaN for spectra that are not titration points.
+POINT_META = "Point"
 BACKGROUND_PREFIX = "Background | "
 
 # Table attribute keys. Units are stored as pint-parseable strings.
@@ -181,33 +184,68 @@ def shared_unit(units) -> str | None:
     return unique.pop() if len(unique) == 1 else None
 
 
+def spectrum_points(table: Table) -> np.ndarray | None:
+    """Return the titration point number of every row, or None if unlabelled.
+
+    Rows that are not titration points have NaN. A table without the
+    ``Point`` meta (for example one that was not made with a Titration Table
+    connected to the CD Data Loader) returns None.
+    """
+    for index, variable in enumerate(table.domain.metas):
+        if variable.name == POINT_META and isinstance(variable, ContinuousVariable):
+            return np.asarray(table.metas[:, index], dtype=float)
+    return None
+
+
+def titration_rows(points: np.ndarray, count: int, what: str) -> np.ndarray:
+    """Convert titration point numbers to zero-based Titration Table rows.
+
+    ``points`` are the numbers of the spectra being paired, ``count`` the
+    number of rows of the Titration Table. Raises ``ValueError`` if a spectrum
+    has no point, a point does not exist, or two spectra share a point.
+    """
+    if np.isnan(points).any():
+        raise ValueError(f"Some {what} spectra have no titration point")
+    rows = points.astype(int) - 1
+    if np.any(rows < 0) or np.any(rows >= count):
+        raise ValueError(
+            f"The {what} spectra use titration points that are not among "
+            f"the {count} rows of the Titration Table"
+        )
+    if len(set(rows.tolist())) != len(rows):
+        raise ValueError(f"Two {what} spectra have the same titration point")
+    return rows
+
+
 def build_spectra_table(
     template: Table,
     X: np.ndarray,
     names: list[str],
     units: list[str],
     attributes: dict | None = None,
+    points: np.ndarray | None = None,
 ) -> Table:
     """Create a spectra table on the wavelength axis of ``template``.
 
     ``X`` holds one spectrum per row; ``names`` and ``units`` label each row
-    through the ``Spectrum`` and ``Unit`` metas.
+    through the ``Spectrum`` and ``Unit`` metas. ``points``, if given, labels
+    each row with its titration point (NaN for none) through the ``Point`` meta.
     """
     spectrum_variable = next(
         variable for variable in template.domain.metas if variable.name == SPECTRUM_META
     )
-    domain = Domain(
-        template.domain.attributes,
-        metas=[spectrum_variable, StringVariable(UNIT_META)],
-    )
+    meta_variables = [spectrum_variable, StringVariable(UNIT_META)]
+    meta_columns = [
+        np.asarray(names, dtype=object),
+        np.asarray(units, dtype=object),
+    ]
+    if points is not None:
+        meta_variables.append(ContinuousVariable(POINT_META))
+        meta_columns.append(np.asarray(points, dtype=float).astype(object))
+    domain = Domain(template.domain.attributes, metas=meta_variables)
     return Table.from_numpy(
         domain,
         np.asarray(X, dtype=float),
-        metas=np.column_stack(
-            (
-                np.asarray(names, dtype=object),
-                np.asarray(units, dtype=object),
-            )
-        ),
+        metas=np.column_stack(meta_columns),
         attributes=dict(template.attributes if attributes is None else attributes),
     )

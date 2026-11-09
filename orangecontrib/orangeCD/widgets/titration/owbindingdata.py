@@ -25,9 +25,11 @@ from .utils import (
     quantity_string,
     reference_spectrum,
     shared_unit,
+    spectrum_points,
     spectrum_units,
     table_quantity,
     table_unit,
+    titration_rows,
     unit_string,
     unit_symbol,
 )
@@ -381,13 +383,29 @@ class OWBindingData(OWWidget):
             self.Error.missing_ratios()
             self.Outputs.data.send(None)
             return
-        if len(ratios) != len(indexed_data):
-            self.Error.mismatched_points(
-                f"There are {len(ratios)} titration ratios but "
-                f"{len(indexed_data)} spectra"
-            )
-            self.Outputs.data.send(None)
-            return
+        points = spectrum_points(self.spectra)
+        if points is None:
+            # Unnumbered spectra are paired with the table rows in order.
+            if len(ratios) != len(indexed_data):
+                self.Error.mismatched_points(
+                    f"There are {len(ratios)} titration ratios but "
+                    f"{len(indexed_data)} spectra"
+                )
+                self.Outputs.data.send(None)
+                return
+        else:
+            try:
+                rows = titration_rows(
+                    points[[i[0] for i in indexed_data]], len(ratios), "titration"
+                )
+            except ValueError as exc:
+                self.Error.mismatched_points(str(exc))
+                self.Outputs.data.send(None)
+                return
+            # Put the points in titration order, whatever the order of the rows.
+            order = np.argsort(rows)
+            indexed_data = [indexed_data[i] for i in order]
+            ratios = np.asarray(ratios, dtype=float)[rows[order]]
 
         concentration = self._metadata_quantity(CONCENTRATION_KEY)
         pathlength = self._metadata_quantity(PATHLENGTH_KEY)

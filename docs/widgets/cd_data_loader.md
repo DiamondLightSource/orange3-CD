@@ -17,6 +17,14 @@ The `Titration data files` section loads the data files from the experiment. The
 > [!NOTE]
 > The loaded data files are sorted according to their name. Every file in the list is always loaded. Selecting files in the list only picks which ones the `Move up` / `Move down` buttons move. The order of the files must match the order of the rows in the Titration Table.
 
+### Titration Table (optional)
+
+Connect the Titration Table from the [CD Titration Calculator](titration_calculator.md) to number the data files. The file at position *n* in the list is point *n* of the Titration Table. The list then reads, for example, `3. 0.3 equiv.csv  (ratio 0.3)`, so you can check at a glance that each file is paired with the right ratio, and reorder with `Move up` / `Move down` until it is.
+
+Each data spectrum in the output then carries its point number in the `Point` meta. The later widgets use it to pick the right row of the Titration Table, instead of relying on the spectra still being in the same order as the table. Spectra that are not titration points (the references) have no point.
+
+The number of files must equal the number of rows of the Titration Table. If it does not, a warning is shown and the files are not numbered. The later widgets then fall back to pairing by order.
+
 ### Units of the data files
 
 The wavelength unit (nanometer, angstrom or micrometer) and CD signal unit (millidegree or degree) of the files are chosen here. They are not read from the files. The choice is stored on the output table, and every downstream widget uses it.
@@ -35,6 +43,8 @@ The output follows the layout used by the Quasar spectroscopy widgets: **each ro
 |`Background \| sol_B`| The spectrum of Solution B|
 |`Background \| buffer`| The spectrum of the buffer|
 |`file \| raw_data`| The spectrum of each titration data file, one row per file|
+
+If a Titration Table is connected there is also a `Point` meta, the number of the titration point of each data spectrum.
 
 The units are stored on the table as the `wavelength_unit` and `spectrum_unit` attributes. If the files cover different wavelengths, only the wavelengths present in every file are kept and the widget shows a warning. The data is still sent. If the files have no wavelengths in common an error is shown instead.
 

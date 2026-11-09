@@ -5,7 +5,7 @@ Extracts the CD signal of the titration at one wavelength and builds the binding
 ## Inputs
 
 - **CD and Delta Epsilon Spectra**: the output of the [Delta Epsilon](delta_epsilon.md) widget. The Solution A concentration and pathlength are read from the attributes it stores on the table.
-- **Titration Table**: from the [CD Titration Calculator](titration_calculator.md). It must have one row per titration spectrum and a `ratio` (or `normalised_molar_ratio` / `molar_ratio`) column.
+- **Titration Table**: from the [CD Titration Calculator](titration_calculator.md). If the spectra carry a `Point` meta, each titration spectrum is paired with the table row of its point and the output is in titration order. Otherwise it must have one row per titration spectrum, paired in order. It needs a `ratio` (or `normalised_molar_ratio` / `molar_ratio`) column.
 
 ## Controls
 

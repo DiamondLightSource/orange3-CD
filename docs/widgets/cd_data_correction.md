@@ -7,7 +7,7 @@ Widget to apply the titration reference corrections to CD spectra. It is intende
 ## Inputs
 
 - **CD Data**: a spectra table from the [CD Data Loader](cd_data_loader.md), optionally preprocessed. It must contain the `Background | buffer` and `Background | sol_A` spectra, and the `raw_data` spectra of the titration points. `Background | sol_B` is optional; without it the Solution B subtraction is skipped and a warning is shown.
-- **Titration Table**: from the [CD Titration Calculator](titration_calculator.md), providing the `dilution_factor` and `normalised_molar_ratio` of each titration point. It must have one row per `raw_data` spectrum. Fixed-volume tables have no `dilution_factor` column; the widget then assumes a factor of 1 for every point, shows a warning, and still sends the output.
+- **Titration Table**: from the [CD Titration Calculator](titration_calculator.md), providing the `dilution_factor` and `normalised_molar_ratio` of each titration point. If the spectra carry a `Point` meta (the Titration Table was connected to the [CD Data Loader](cd_data_loader.md)), each `raw_data` spectrum is paired with the table row of its point, whatever the order of the spectra, and a subset of the points can be used. Otherwise the table must have one row per `raw_data` spectrum, and they are paired in order. Fixed-volume tables have no `dilution_factor` column; the widget then assumes a factor of 1 for every point, shows a warning, and still sends the output.
 
 All spectra are converted to the unit of the first data spectrum before the corrections, so spectra in different CD units (for example degree and millidegree) can be combined.
 

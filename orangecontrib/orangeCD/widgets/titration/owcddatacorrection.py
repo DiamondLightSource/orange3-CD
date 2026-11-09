@@ -21,7 +21,9 @@ from .utils import (
     spectrum_names,
     spectrum_units,
     split_series_name,
+    spectrum_points,
     table_unit,
+    titration_rows,
     unit_symbol,
 )
 from .utils import (
@@ -284,19 +286,25 @@ class OWCDDataCorrection(OWWidget):
             self.Error.no_data_spectra()
             return None
 
+        points = spectrum_points(self.data)
         try:
             ratio = self._titration_column(RATIO_COLUMN)
-            if len(ratio) != len(data_rows):
-                raise ValueError(
-                    f"The Titration Table has {len(ratio)} rows but there "
-                    f"are {len(data_rows)} '{DATA_STAGE}' spectra"
-                )
             if DILUTION_COLUMN in self.titration.domain:
                 dilution = self._titration_column(DILUTION_COLUMN)
             else:
                 # Fixed-volume titrations do not dilute the cell.
                 self.Warning.no_dilution_factor()
                 dilution = np.ones(len(ratio))
+            if points is None:
+                # Unnumbered spectra are paired with the table rows in order.
+                if len(ratio) != len(data_rows):
+                    raise ValueError(
+                        f"The Titration Table has {len(ratio)} rows but there "
+                        f"are {len(data_rows)} '{DATA_STAGE}' spectra"
+                    )
+            else:
+                rows = titration_rows(points[data_rows], len(ratio), DATA_STAGE)
+                ratio, dilution = ratio[rows], dilution[rows]
         except ValueError as exc:
             self.Error.invalid_titration(str(exc))
             return None
@@ -343,14 +351,17 @@ class OWCDDataCorrection(OWWidget):
             return None
 
         samples = [split_series_name(names[row])[0] for row in data_rows]
-        new_names, new_rows = [], []
+        new_names, new_rows, new_points = [], [], []
         for stage in ("sol_A_buffer_subtracted", "sol_B_buffer_subtracted"):
             if stage in corrected:
                 new_names.append(f"{BACKGROUND_PREFIX}{stage}")
                 new_rows.append(corrected[stage][None, :])
+                new_points.append(np.nan)  # references belong to no point
         for stage in DATA_STAGES:
             new_names.extend(f"{sample} | {stage}" for sample in samples)
             new_rows.append(corrected[stage])
+            if points is not None:
+                new_points.extend(points[data_rows])
 
         # Keep the input rows so the original stages remain selectable.
         output = build_spectra_table(
@@ -358,6 +369,8 @@ class OWCDDataCorrection(OWWidget):
             np.vstack((self.data.X, *new_rows)),
             [*names, *new_names],
             [*row_units, *[unit] * len(new_names)],
+            # Each corrected data spectrum keeps the point it came from.
+            points=None if points is None else [*points, *new_points],
         )
         if region is not None:
             output.attributes["lazy_baseline_region"] = list(region)

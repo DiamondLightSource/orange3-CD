@@ -22,6 +22,8 @@ The `cut` method can remove a section of spectrum that is not required for analy
 
 The core processing and calculation of the titration processing pipeline occurs is performed with the [CD Data Correction](cd_data_correction.md), [Delta Epsilon](delta_epsilon.md), and [Binding data](binding_data.md) widgets. 
 
+If the titration table is also connected to the CD Data Loader, each data file is numbered with its titration point, so that the later widgets pair spectra and table rows by number rather than by order. Check in the file list that every file has the ratio you expect.
+
 The data correction will work without any user interaction if it uses the preprocessing widget as an input. In short, the widget performs concentration-dependent titration corrections to each spectrum in turn, using the titration table as a second source of input information.
 
 The Delta Epsilon widget calculates the delta epsilon spectra. The series selection by default should be correct (Titration data series = "plus_sol_A", Solution A series = "sol_A_buffer_subtracted"). As the widget documentation describes, some more information may be necessary to input at this stage for your calculation.

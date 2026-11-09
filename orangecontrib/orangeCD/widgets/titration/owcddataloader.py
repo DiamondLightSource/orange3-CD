@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
 
@@ -14,9 +14,10 @@ from AnyQt.QtCore import Qt
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
-from Orange.widgets.widget import Msg, Output, OWWidget
+from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from .utils import (
+    POINT_META,
     SPECTRUM_META,
     SPECTRUM_UNIT_KEY,
     WAVELENGTH_UNIT_KEY,
@@ -126,12 +127,17 @@ def natural_key(path: str) -> list[object]:
 
 
 def dataframe_to_orange_table(
-    dataframe: pd.DataFrame, wavelength_unit: str, spectrum_unit: str
+    dataframe: pd.DataFrame,
+    wavelength_unit: str,
+    spectrum_unit: str,
+    points: Sequence[float] | None = None,
 ) -> Table:
     """Convert a wavelength-indexed frame into a spectra-as-rows table.
 
     Columns of ``dataframe`` (one per spectrum) become rows; the index
-    (wavelength) becomes the attributes, in ascending order.
+    (wavelength) becomes the attributes, in ascending order. ``points``, if
+    given, holds the titration point number of each column (NaN for none)
+    and becomes the ``Point`` meta.
     """
     output = dataframe.copy()
     output.columns = [
@@ -141,14 +147,19 @@ def dataframe_to_orange_table(
     # Ascending wavelength axis, whatever order the instrument wrote.
     output = output.sort_index()
 
+    meta_variables = [StringVariable(SPECTRUM_META)]
+    meta_columns = [np.array(output.columns, dtype=object)]
+    if points is not None:
+        meta_variables.append(ContinuousVariable(POINT_META))
+        meta_columns.append(np.asarray(points, dtype=float).astype(object))
     domain = Domain(
         [ContinuousVariable(str(wavelength)) for wavelength in output.index.values],
-        metas=[StringVariable(SPECTRUM_META)],
+        metas=meta_variables,
     )
     table = Table.from_numpy(
         domain,
         output.to_numpy(dtype=float).T,
-        metas=np.array(output.columns, dtype=object)[:, np.newaxis],
+        metas=np.column_stack(meta_columns),
     )
     table.attributes[WAVELENGTH_UNIT_KEY] = unit_string(wavelength_unit)
     table.attributes[SPECTRUM_UNIT_KEY] = unit_string(spectrum_unit)
@@ -174,6 +185,9 @@ class OWCDDataLoader(OWWidget):
     wavelength_unit = Setting(WAVELENGTH_UNITS[0])
     cd_unit = Setting(CD_SIGNAL_UNITS[0])
 
+    class Inputs:
+        titration = Input("Titration Table", Table)
+
     class Outputs:
         data = Output("CD Data", Table)
 
@@ -181,6 +195,10 @@ class OWCDDataLoader(OWWidget):
         load_failed = Msg("{}")
 
     class Warning(OWWidget.Warning):
+        point_count_mismatch = Msg(
+            "There are {files} titration data files but the Titration Table has "
+            "{rows} rows, so the files are not numbered."
+        )
         cropped_wavelengths = Msg(
             "The files cover different wavelengths. Only the {count} wavelengths "
             "common to all files ({low:g} to {high:g}) are used."
@@ -191,6 +209,7 @@ class OWCDDataLoader(OWWidget):
         # List model displayed by gui.listBox; must exist before the controls.
         self.data_file_names: list[str] = []
         self.cd_data: pd.DataFrame | None = None
+        self.titration: Table | None = None
         self._build_controls()
         self._build_plot()
         self._refresh_file_list()
@@ -342,7 +361,7 @@ class OWCDDataLoader(OWWidget):
         if not changed:
             return
         self.data_files = [path for path, _ in items]
-        self.data_file_names = [Path(path).name for path in self.data_files]
+        self.data_file_names = self._file_labels()
         self.selected_data_files = [i for i, (_, chosen) in enumerate(items) if chosen]
         self._load_and_plot_raw_data()
         self.commit()
@@ -354,8 +373,39 @@ class OWCDDataLoader(OWWidget):
         self._refresh_plot()
         self.commit()
 
+    @Inputs.titration
+    def set_titration(self, table: Table | None) -> None:
+        self.titration = table
+        selected = list(self.selected_data_files)
+        self.data_file_names = self._file_labels()
+        self.selected_data_files = selected
+        self.commit()
+
+    def _points_available(self) -> bool:
+        """Whether every data file can be given a row of the Titration Table."""
+        return self.titration is not None and len(self.titration) == len(
+            self.data_files
+        )
+
+    def _file_labels(self) -> list[str]:
+        """List entries: the file names, numbered when a Titration Table is given."""
+        names = [Path(path).name for path in self.data_files]
+        if not self._points_available():
+            return names
+        try:
+            ratios = self.titration.get_column("ratio")
+        except (KeyError, ValueError):
+            ratios = None
+        labels = []
+        for index, name in enumerate(names):
+            label = f"{index + 1}. {name}"
+            if ratios is not None:
+                label += f"  (ratio {ratios[index]:g})"
+            labels.append(label)
+        return labels
+
     def _refresh_file_list(self) -> None:
-        self.data_file_names = [Path(path).name for path in self.data_files]
+        self.data_file_names = self._file_labels()
         # The selection only picks files to move; every file is always used.
         self.selected_data_files = []
 
@@ -391,6 +441,7 @@ class OWCDDataLoader(OWWidget):
         """
         self.Error.load_failed.clear()
         self.Warning.cropped_wavelengths.clear()
+        self.Warning.point_count_mismatch.clear()
         references = {
             "sol_A": self.solution_a_file,
             "sol_B": self.solution_b_file,
@@ -420,7 +471,24 @@ class OWCDDataLoader(OWWidget):
                     low=float(frame.index.min()),
                     high=float(frame.index.max()),
                 )
-            table = dataframe_to_orange_table(frame, self.wavelength_unit, self.cd_unit)
+            points = None
+            if self.titration is not None:
+                if self._points_available():
+                    # Number each data file by its place in the list, which is
+                    # its row in the Titration Table. Later widgets pair the two
+                    # by this number rather than by the order of the rows.
+                    numbers = {
+                        (Path(path).name, "raw_data"): index + 1
+                        for index, path in enumerate(self.data_files)
+                    }
+                    points = [numbers.get(column, np.nan) for column in frame.columns]
+                else:
+                    self.Warning.point_count_mismatch(
+                        files=len(self.data_files), rows=len(self.titration)
+                    )
+            table = dataframe_to_orange_table(
+                frame, self.wavelength_unit, self.cd_unit, points
+            )
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
             self.Error.load_failed(str(exc))
             self.Outputs.data.send(None)
