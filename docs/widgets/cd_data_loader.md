@@ -15,7 +15,7 @@ Spectra of Solution A, Solution B and the buffer can be loaded with the `Browse.
 The `Titration data files` section loads the data files from the experiment. The file browser is opened using the `Select files...` button.
 
 > [!NOTE]
-> The loaded data files are sorted according to their name. Select a file in the list and use `Move up` / `Move down` to change the order. The order of the files must match the order of the rows in the Titration Table.
+> The loaded data files are sorted according to their name. Every file in the list is always loaded. Selecting files in the list only picks which ones the `Move up` / `Move down` buttons move. The order of the files must match the order of the rows in the Titration Table.
 
 ### Units of the data files
 
@@ -36,7 +36,7 @@ The output follows the layout used by the Quasar spectroscopy widgets: **each ro
 |`Background \| buffer`| The spectrum of the buffer|
 |`file \| raw_data`| The spectrum of each titration data file, one row per file|
 
-The units are stored on the table as the `wavelength_unit` and `spectrum_unit` attributes. All files must share the same wavelength axis.
+The units are stored on the table as the `wavelength_unit` and `spectrum_unit` attributes. If the files cover different wavelengths, only the wavelengths present in every file are kept and the widget shows a warning. The data is still sent. If the files have no wavelengths in common an error is shown instead.
 
 > [!NOTE]
 > Buffer subtraction, dilution-factor scaling and Solution B subtraction are not performed by this widget. Use the [CD Data Correction](cd_data_correction.md) widget after spectral preprocessing.

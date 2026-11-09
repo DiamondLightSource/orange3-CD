@@ -165,6 +165,14 @@ class TestLoaderWidget(orange_tests.WidgetTest):
         self.widget._move_selected(1)
         assert self.widget.data_file_names == ["1.csv", "2.csv", "3.csv"]
 
+    def test_all_files_used_whatever_is_selected(self):
+        self.load(3)
+        assert list(self.widget.selected_data_files) == []
+        assert len(spectrum_names(self.output())) == 3
+        self.widget.selected_data_files = [1]
+        self.widget.commit()
+        assert len(spectrum_names(self.output())) == 3
+
     def test_empty(self):
         assert self.output() is None
         assert not self.widget.Error.active
@@ -214,13 +222,33 @@ class TestLoaderWidget(orange_tests.WidgetTest):
         assert set(spectrum_units(table)) == {"degree"}
         assert "Å" in self.widget.plot_widget.getAxis("bottom").labelUnits
 
-    def test_mismatched_wavelength_axes(self):
+    def test_mismatched_wavelength_axes_use_common_wavelengths(self):
+        self.widget.data_files = [
+            write_csv(self.tmp_path / "a.csv", [1, 2, 3, 4]),
+            write_csv(
+                self.tmp_path / "b.csv",
+                [5, 6, 7, 8],
+                wavelengths=[250.0, 240.0, 230.0, 220.0],
+            ),
+        ]
+        self.widget.commit()
+        assert not self.widget.Error.active
+        assert self.widget.Warning.cropped_wavelengths.is_shown()
+        table = self.output()
+        np.testing.assert_array_equal(wavelengths(table), [230, 240, 250])
+        np.testing.assert_allclose(table.X, [[4, 3, 2], [7, 6, 5]])
+        # The warning goes away once the axes agree.
+        self.widget.data_files = self.widget.data_files[:1]
+        self.widget.commit()
+        assert not self.widget.Warning.cropped_wavelengths.is_shown()
+
+    def test_no_common_wavelengths_is_an_error(self):
         self.widget.data_files = [
             write_csv(self.tmp_path / "a.csv", [1] * 4),
             write_csv(
                 self.tmp_path / "b.csv",
                 [1] * 4,
-                wavelengths=[261.0, 251.0, 241.0, 231.0],
+                wavelengths=[161.0, 151.0, 141.0, 131.0],
             ),
         ]
         self.widget.commit()

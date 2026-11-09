@@ -180,6 +180,12 @@ class OWCDDataLoader(OWWidget):
     class Error(OWWidget.Error):
         load_failed = Msg("{}")
 
+    class Warning(OWWidget.Warning):
+        cropped_wavelengths = Msg(
+            "The files cover different wavelengths. Only the {count} wavelengths "
+            "common to all files ({low:g} to {high:g}) are used."
+        )
+
     def __init__(self) -> None:
         super().__init__()
         # List model displayed by gui.listBox; must exist before the controls.
@@ -208,6 +214,10 @@ class OWCDDataLoader(OWWidget):
             "selected_data_files",
             "data_file_names",
             selectionMode=gui.QtWidgets.QAbstractItemView.ExtendedSelection,
+        )
+        self.data_file_list.setToolTip(
+            "Every file in the list is loaded, in this order. Selecting files "
+            "only lets you move them with the buttons below."
         )
         self.data_file_list.setMinimumWidth(480)
         self.data_file_list.setMinimumHeight(150)
@@ -346,7 +356,8 @@ class OWCDDataLoader(OWWidget):
 
     def _refresh_file_list(self) -> None:
         self.data_file_names = [Path(path).name for path in self.data_files]
-        self.selected_data_files = list(range(len(self.data_file_names)))
+        # The selection only picks files to move; every file is always used.
+        self.selected_data_files = []
 
     def _load_and_plot_raw_data(self) -> None:
         self.Error.load_failed.clear()
@@ -379,6 +390,7 @@ class OWCDDataLoader(OWWidget):
         ``<file name> | raw_data`` rows.
         """
         self.Error.load_failed.clear()
+        self.Warning.cropped_wavelengths.clear()
         references = {
             "sol_A": self.solution_a_file,
             "sol_B": self.solution_b_file,
@@ -399,8 +411,14 @@ class OWCDDataLoader(OWWidget):
                 return
             frame = pd.DataFrame(series)
             if frame.isna().any().any():
-                raise ValueError(
-                    "The selected files do not all share the same wavelength axis"
+                # Keep only the wavelengths present in every file.
+                frame = frame.dropna()
+                if frame.empty:
+                    raise ValueError("The selected files share no wavelengths")
+                self.Warning.cropped_wavelengths(
+                    count=len(frame),
+                    low=float(frame.index.min()),
+                    high=float(frame.index.max()),
                 )
             table = dataframe_to_orange_table(frame, self.wavelength_unit, self.cd_unit)
         except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
