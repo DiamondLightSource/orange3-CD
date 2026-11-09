@@ -74,6 +74,21 @@ class TestBindingData(orange_tests.WidgetTest):
         )
         assert list(out.metas[:, 0]) == NAMES
 
+    def test_hill_columns_match_the_cd_apps_hill_fit_inputs(self):
+        # CD Apps fits [B] in micromolar against delta A scaled to 1 cm.
+        table = spectra()
+        table.attributes[PATHLENGTH_KEY] = quantity_string(Q_(2, "centimeter"))
+        out = self.run_widget(table)
+        titration_point = np.array([0, *RATIOS])
+        np.testing.assert_allclose(
+            self.column(out, "Hill Conc [B]"), titration_point * 15.0
+        )
+        delta_a = np.array([0, 5, 10, 15]) / 32980
+        np.testing.assert_allclose(self.column(out, "Delta A"), delta_a)
+        np.testing.assert_allclose(self.column(out, "Hill Delta A"), delta_a / 2)
+        assert out.domain["Hill Conc [B]"].attributes["unit"] == "micromolar"
+        assert out.domain["Hill Delta A"].attributes["unit"] == "1 / centimeter"
+
     def test_signed_change(self):
         self.widget.absolute_change = False
         out = self.run_widget()

@@ -28,5 +28,7 @@ The plot shows the Solution A and titration spectra and the selected wavelength.
 |`Delta Epsilon`| `Delta A / (concentration × pathlength)` |
 |`Binding Stoichiometry`| `titration point / (titration point + 1)` |
 |`Conc [B]`| The titration point multiplied by the molar concentration of Solution A |
+|`Hill Conc [B]`| The same concentration in micromolar, the x values of the CD Apps Hill fit |
+|`Hill Delta A`| `Delta A / pathlength`, i.e. delta A scaled to a 1 cm pathlength, the y values of the CD Apps Hill fit |
 
 The table attributes record the measurement wavelength, the series used, the concentration and the pathlength. The output can be connected to [Binding Plot](binding_plot.md).

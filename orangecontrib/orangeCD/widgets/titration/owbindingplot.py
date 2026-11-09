@@ -16,8 +16,12 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 from ...units import Q_
 from .utils import MEASUREMENT_WAVELENGTH_KEY, table_quantity
 
-DEFAULT_X = "Titration point"
-DEFAULT_Y = "Delta A"
+# The Hill fit of CD Apps used [B] in micromolar against delta A per cm of
+# pathlength. Tables without those columns fall back to the plain ones.
+DEFAULT_X = "Hill Conc [B]"
+DEFAULT_Y = "Hill Delta A"
+FALLBACK_X = "Titration point"
+FALLBACK_Y = "Delta A"
 
 # Fitted parameters that share the physical unit of the response (y) or of
 # the independent variable (x); everything else (Hill coefficients, r_sq,
@@ -460,8 +464,12 @@ class OWBindingPlot(OWWidget):
         )
         self.variable_names = names
 
-        x_selected = self._preferred_variable(self.x_variable, DEFAULT_X, names)
-        y_selected = self._preferred_variable(self.y_variable, DEFAULT_Y, names)
+        x_selected = self._preferred_variable(
+            self.x_variable, (DEFAULT_X, FALLBACK_X), names
+        )
+        y_selected = self._preferred_variable(
+            self.y_variable, (DEFAULT_Y, FALLBACK_Y), names
+        )
         if y_selected == x_selected and len(names) > 1:
             y_selected = next(name for name in names if name != x_selected)
 
@@ -487,11 +495,14 @@ class OWBindingPlot(OWWidget):
             self.Error.no_continuous_data()
 
     @staticmethod
-    def _preferred_variable(current: str, default: str, names: list[str]) -> str:
+    def _preferred_variable(
+        current: str, defaults: tuple[str, ...], names: list[str]
+    ) -> str:
         if current in names:
             return current
-        if default in names:
-            return default
+        for default in defaults:
+            if default in names:
+                return default
         return names[0] if names else ""
 
     def _selection_changed(self) -> None:

@@ -43,6 +43,10 @@ DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
 DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
 # Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
+# CD Apps fits the Hill equation to [B] in micromolar against delta A scaled
+# to a 1 cm pathlength, so those two columns are provided as well.
+HILL_CONCENTRATION_UNIT = "micromolar"
+HILL_DELTA_A_UNIT = "1 / centimeter"
 
 
 def continuous_column(table: Table, names: tuple[str, ...]) -> np.ndarray | None:
@@ -466,6 +470,12 @@ class OWBindingData(OWWidget):
         delta_epsilon_variable.attributes["unit"] = unit_string(DELTA_EPSILON_UNIT)
         concentration_b_variable = ContinuousVariable("Conc [B]")
         concentration_b_variable.attributes["unit"] = unit_string(CONCENTRATION_UNIT)
+        hill_concentration_variable = ContinuousVariable("Hill Conc [B]")
+        hill_concentration_variable.attributes["unit"] = unit_string(
+            HILL_CONCENTRATION_UNIT
+        )
+        hill_delta_a_variable = ContinuousVariable("Hill Delta A")
+        hill_delta_a_variable.attributes["unit"] = unit_string(HILL_DELTA_A_UNIT)
         domain = Domain(
             [
                 ContinuousVariable("Titration point"),
@@ -475,6 +485,8 @@ class OWBindingData(OWWidget):
                 delta_epsilon_variable,
                 ContinuousVariable("Binding Stoichiometry"),
                 concentration_b_variable,
+                hill_concentration_variable,
+                hill_delta_a_variable,
             ],
             metas=[StringVariable("Sample")],
         )
@@ -490,6 +502,8 @@ class OWBindingData(OWWidget):
                     delta_epsilon.magnitude,
                     binding_stoichiometry,
                     concentration_b.magnitude,
+                    concentration_b.to(HILL_CONCENTRATION_UNIT).magnitude,
+                    (delta_a / pathlength).to(HILL_DELTA_A_UNIT).magnitude,
                 )
             ),
             metas=np.asarray(sample_names, dtype=object).reshape(-1, 1),

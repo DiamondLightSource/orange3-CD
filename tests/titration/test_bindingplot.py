@@ -169,6 +169,19 @@ class TestWidget(orange_tests.WidgetTest):
         assert self.widget.y_variable == "Delta A"
         assert self.widget.variable_names == ["Titration point", "Delta A", "CD"]
 
+    def test_hill_columns_are_preferred_when_present(self):
+        domain = Domain(
+            [
+                ContinuousVariable("Titration point"),
+                ContinuousVariable("Delta A"),
+                ContinuousVariable("Hill Conc [B]"),
+                ContinuousVariable("Hill Delta A"),
+            ]
+        )
+        self.send(Table.from_numpy(domain, np.ones((5, 4))))
+        assert self.widget.x_variable == "Hill Conc [B]"
+        assert self.widget.y_variable == "Hill Delta A"
+
     def test_y_differs_from_x_when_defaults_missing(self):
         domain = Domain([ContinuousVariable("p"), ContinuousVariable("q")])
         self.send(Table.from_numpy(domain, np.ones((5, 2))))
