@@ -1,6 +1,7 @@
 """Widget tests for the loader -> preprocess -> delta epsilon -> binding chain."""
 
 import numpy as np
+import pytest
 from helpers import titration_table, write_csv
 from Orange.data import Table
 from Orange.widgets.tests import base as orange_tests
@@ -46,7 +47,7 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         with tempfile.TemporaryDirectory() as d:
             loaded = self.load(pathlib.Path(d))
         # Stand-in for Quasar preprocessing: a transform keeps metas/attributes.
-        from orangecontrib.spectroscopy.preprocess import Cut
+        Cut = pytest.importorskip("orangecontrib.spectroscopy.preprocess").Cut
 
         loaded = Cut(lowlim=225, highlim=265)(loaded)
 
