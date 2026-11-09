@@ -130,7 +130,12 @@ class TestWidget(orange_tests.WidgetTest):
 
     def test_legend_toggle(self):
         self.send(spectra_table(NAMES, X))
-        assert self.legend_labels() == ["Background", "a", "b", "a"]
+        assert self.legend_labels() == [
+            "Background | sol_A",
+            "a | raw_data",
+            "b | raw_data",
+            "a | plus_sol_A",
+        ]
         self.widget.show_legend = False
         self.widget._replot()
         assert self.legend_labels() == []

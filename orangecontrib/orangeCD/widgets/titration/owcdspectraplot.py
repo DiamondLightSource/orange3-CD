@@ -351,7 +351,13 @@ class OWCDSpectraPlot(OWWidget):
                 pen=pg.mkPen(colour, width=self.line_width),
             )
             if self.show_legend:
-                display_name = var_name.split(" | ", maxsplit=1)[0]
+                # Within one stage the sample name is enough; across stages the
+                # full name is needed to tell the spectra apart.
+                display_name = (
+                    var_name
+                    if self.selected_stage == "All spectra"
+                    else var_name.split(" | ", maxsplit=1)[0]
+                )
                 self.legend.addItem(curve, display_name)
 
         self.plot_item.invertX(self.reverse_wavelength_axis)
