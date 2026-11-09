@@ -39,6 +39,12 @@ class TestConstruction:
             {"working_con_a": Q_(-1, UM)},
             {"stock_b_concentrations": []},
             {"stock_b_concentrations": [Q_(1, UM), Q_(0, UM)]},
+            {"stock_b_molar_equiv": 0},
+            {"stock_b_molar_equiv": -2.75},
+            {"stock_b_molar_equiv": float("nan")},
+            {"starting_cell_volume": Q_(float("nan"), UL)},
+            {"working_con_a": Q_(float("inf"), UM)},
+            {"stock_b_concentrations": [Q_(float("nan"), UM)]},
         ],
     )
     def test_invalid(self, override):
@@ -207,6 +213,24 @@ class TestCalculateIncreasing:
         assert result.result_attributes()["within_limit"] is False
 
 
+class TestSolutionAVolume:
+    def make(self):
+        # Working concentration above the stock: Solution A cannot fit in the cell.
+        return make_calculator(working_con_a=Q_(1000, UM))
+
+    @pytest.mark.parametrize("mode", list(TitrationMode))
+    def test_solution_a_larger_than_cell_is_an_error(self, mode):
+        calculator = self.make()
+        with pytest.raises(ValueError):
+            calculator.calculate(mode, [TitrationPoint(ratio=0.01, stock_b=1)])
+
+    def test_increasing_message_names_the_cause(self):
+        with pytest.raises(ValueError, match="exceeds the starting cell volume"):
+            self.make().calculate(
+                TitrationMode.INCREASING, [TitrationPoint(ratio=0.01, stock_b=1)]
+            )
+
+
 class TestCalculateValidation:
     @pytest.mark.parametrize(
         "points",
@@ -250,6 +274,10 @@ class TestCalculatorWidget(orange_tests.WidgetTest):
             {"stock_b_concentrations_values": "x"},
             {"starting_cell_volume_value": "-5"},
             {"stock_con_a_value": "zero"},
+            {"stock_b_molar_equiv": "0"},
+            {"stock_b_molar_equiv": "nan"},
+            {"starting_cell_volume_value": "inf"},
+            {"working_con_a_value": "1000", "mode": "increasing"},
         ):
             with self.subTest(**settings):
                 self.setUp()

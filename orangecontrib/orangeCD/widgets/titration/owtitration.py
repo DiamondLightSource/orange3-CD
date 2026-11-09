@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -157,6 +158,20 @@ class CDTitrationCalculator:
         stock_b_concentrations: Sequence[Quantity],
         stock_b_molar_equiv: float,
     ) -> None:
+        quantities = [
+            starting_cell_volume,
+            stock_con_a,
+            working_con_a,
+            *stock_b_concentrations,
+        ]
+        if not all(math.isfinite(float(q.magnitude)) for q in quantities) or (
+            not math.isfinite(float(stock_b_molar_equiv))
+        ):
+            raise ValueError("All inputs must be finite numbers")
+
+        if float(stock_b_molar_equiv) <= 0:
+            raise ValueError("Stock B molar equivalent must be greater than zero")
+
         if float(starting_cell_volume.magnitude) <= 0:
             raise ValueError("Starting cell volume must be greater than zero")
 
@@ -483,6 +498,12 @@ class CDTitrationCalculator:
         volume_a = self.volume_solution_a
 
         volume_buffer = round_volume(self.starting_cell_volume - volume_a)
+        if volume_buffer < 0:
+            raise ValueError(
+                f"The volume of Solution A ({volume_a:~.4g}) exceeds the starting "
+                f"cell volume ({self.starting_cell_volume:~.4g}). Use a more "
+                "concentrated stock of Solution A or a lower working concentration."
+            )
 
         rows: list[IncreasingRow] = []
 
