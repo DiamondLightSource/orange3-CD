@@ -101,8 +101,10 @@ class TestWidget(orange_tests.WidgetTest):
         out = self.run_widget()
         assert not self.widget.Error.active
         assert spectrum_names(out) == [
-            *NAMES,
-            "Background | sol_A_delta_epsilon",
+            "sol_A | raw_data",
+            "a | raw_data",
+            "b | raw_data",
+            "sol_A | raw_data_delta_epsilon",
             "a | raw_data_delta_epsilon",
             "b | raw_data_delta_epsilon",
         ]
@@ -117,23 +119,23 @@ class TestWidget(orange_tests.WidgetTest):
         out = self.run_widget()
         assert out.attributes["wavelength_unit"] == "nanometer"  # carried over
         assert out.attributes["data_series"] == "raw_data"
-        assert out.attributes["solution_a_series"] == "sol_A"
+        assert out.attributes["solution_a_series"] == "raw_data"
         assert table_quantity(out, CONCENTRATION_KEY).to("micromolar").magnitude == CONC
         assert table_quantity(out, PATHLENGTH_KEY).to("centimeter").magnitude == 1.0
         assert "delta epsilon" in out.name
 
     def test_series_default_to_most_corrected(self):
-        names = [*NAMES, "a | plus_sol_A", "Background | sol_A_buffer_subtracted"]
+        names = [*NAMES, "a | sol_A_added", "Background | sol_A_buffer_subtracted"]
         table = spectra_table(names, np.vstack([CD, CD[1:2], CD[:1]]))
         self.run_widget(table, titration_table([0.5]))
-        assert self.widget.data_series == "plus_sol_A"
-        assert self.widget.solution_a_series == "sol_A_buffer_subtracted"
+        assert self.widget.data_series == "sol_A_added"
+        assert self.widget.solution_a_series == "buffer_subtracted"
 
     def test_saved_series_choice_is_kept(self):
         self.widget = self.create_widget(
             OWDeltaEpsilon, stored_settings={"data_series": "raw_data"}
         )
-        names = [*NAMES, "a | plus_sol_A"]
+        names = [*NAMES, "a | sol_A_added"]
         table = spectra_table(names, np.vstack([CD, CD[1:2]]))
         self.run_widget(table, titration_table([0.5, 1.0]))
         assert self.widget.data_series == "raw_data"

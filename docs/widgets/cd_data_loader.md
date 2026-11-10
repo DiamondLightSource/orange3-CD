@@ -39,10 +39,18 @@ The output follows the layout used by the Quasar spectroscopy widgets: **each ro
 
 |Spectrum| Description |
 |-|-|
-|`Background \| sol_A`| The spectrum of Solution A|
-|`Background \| sol_B`| The spectrum of Solution B|
-|`Background \| buffer`| The spectrum of the buffer|
+|`sol_A \| raw_data`| The spectrum of Solution A|
+|`sol_B \| raw_data`| The spectrum of Solution B|
+|`buffer \| raw_data`| The spectrum of the buffer|
 |`file \| raw_data`| The spectrum of each titration data file, one row per file|
+
+The name is for display only. What each row is, is recorded in separate meta columns, so a file name that happens to contain ` | ` is not misread:
+
+|Meta|Description|
+|-|-|
+|`Sample`| The file name, or `sol_A`, `sol_B` or `buffer` for the references |
+|`Stage`| How far the spectrum has been processed. The Loader writes `raw_data` |
+|`Role`| What the spectrum is: `sol_A`, `sol_B`, `buffer` or `titration` |
 
 If a Titration Table is connected there is also a `Point` meta, the number of the titration point of each data spectrum.
 

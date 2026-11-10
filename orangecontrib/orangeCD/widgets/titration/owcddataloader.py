@@ -18,7 +18,16 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from .utils import (
     POINT_META,
+    ROLE_BUFFER,
+    ROLE_META,
+    ROLE_SOL_A,
+    ROLE_SOL_B,
+    ROLE_TITRATION,
+    SAMPLE_META,
     SPECTRUM_META,
+    STAGE_META,
+    STAGE_RAW,
+    SpectrumLabel,
     SPECTRUM_UNIT_KEY,
     WAVELENGTH_UNIT_KEY,
     unit_string,
@@ -135,20 +144,40 @@ def dataframe_to_orange_table(
     """Convert a wavelength-indexed frame into a spectra-as-rows table.
 
     Columns of ``dataframe`` (one per spectrum) become rows; the index
-    (wavelength) becomes the attributes, in ascending order. ``points``, if
-    given, holds the titration point number of each column (NaN for none)
-    and becomes the ``Point`` meta.
+    (wavelength) becomes the attributes, in ascending order. A column is
+    either a ``(sample, stage, role)`` tuple, which gives the ``Spectrum``,
+    ``Sample``, ``Stage`` and ``Role`` metas, or a plain name, which gives
+    only ``Spectrum``. ``points``, if given, holds the titration point number
+    of each column (NaN for none) and becomes the ``Point`` meta.
     """
     output = dataframe.copy()
-    output.columns = [
-        " | ".join(map(str, col)) if isinstance(col, tuple) else str(col)
-        for col in output.columns
-    ]
+    labelled = len(output.columns) > 0 and all(
+        isinstance(col, tuple) and len(col) == 3 for col in output.columns
+    )
+    labels = [SpectrumLabel(*col) for col in output.columns] if labelled else []
+    output.columns = (
+        [label.name for label in labels]
+        if labelled
+        else [
+            " | ".join(map(str, col)) if isinstance(col, tuple) else str(col)
+            for col in output.columns
+        ]
+    )
     # Ascending wavelength axis, whatever order the instrument wrote.
     output = output.sort_index()
 
     meta_variables = [StringVariable(SPECTRUM_META)]
     meta_columns = [np.array(output.columns, dtype=object)]
+    if labelled:
+        for meta, attribute in (
+            (SAMPLE_META, "sample"),
+            (STAGE_META, "stage"),
+            (ROLE_META, "role"),
+        ):
+            meta_variables.append(StringVariable(meta))
+            meta_columns.append(
+                np.array([getattr(label, attribute) for label in labels], dtype=object)
+            )
     if points is not None:
         meta_variables.append(ContinuousVariable(POINT_META))
         meta_columns.append(np.asarray(points, dtype=float).astype(object))
@@ -436,24 +465,25 @@ class OWCDDataLoader(OWWidget):
     def commit(self) -> None:
         """Send every loaded spectrum, uncorrected, as one table.
 
-        Reference files become ``Background | <role>`` rows and data files
-        ``<file name> | raw_data`` rows.
+        A reference file becomes a ``raw_data`` row whose sample and role are
+        the reference (``buffer``, ``sol_A`` or ``sol_B``), and a data file a
+        ``raw_data`` row of role ``titration`` named after the file.
         """
         self.Error.load_failed.clear()
         self.Warning.cropped_wavelengths.clear()
         self.Warning.point_count_mismatch.clear()
         references = {
-            "sol_A": self.solution_a_file,
-            "sol_B": self.solution_b_file,
-            "buffer": self.buffer_file,
+            ROLE_SOL_A: self.solution_a_file,
+            ROLE_SOL_B: self.solution_b_file,
+            ROLE_BUFFER: self.buffer_file,
         }
         try:
             series: dict[tuple[str, str], pd.Series] = {}
             for role, path in references.items():
                 if path:
-                    series[("Background", role)] = average_cd_series(path)
+                    series[(role, STAGE_RAW, role)] = average_cd_series(path)
             for path in self.data_files:
-                key = (Path(path).name, "raw_data")
+                key = (Path(path).name, STAGE_RAW, ROLE_TITRATION)
                 if key in series:
                     raise ValueError(f"Duplicate file name: {key[0]}")
                 series[key] = average_cd_series(path)
@@ -478,7 +508,7 @@ class OWCDDataLoader(OWWidget):
                     # its row in the Titration Table. Later widgets pair the two
                     # by this number rather than by the order of the rows.
                     numbers = {
-                        (Path(path).name, "raw_data"): index + 1
+                        (Path(path).name, STAGE_RAW, ROLE_TITRATION): index + 1
                         for index, path in enumerate(self.data_files)
                     }
                     points = [numbers.get(column, np.nan) for column in frame.columns]

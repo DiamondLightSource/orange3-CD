@@ -181,12 +181,12 @@ class TestBindingData(orange_tests.WidgetTest):
         assert self.widget.wavelength_spin.suffix() == ""
 
     def test_series_controls_and_changes(self):
-        names = [*NAMES, "a | plus_sol_A", "b | plus_sol_A", "c | plus_sol_A"]
+        names = [*NAMES, "a | sol_A_added", "b | sol_A_added", "c | sol_A_added"]
         X = np.vstack([CD, CD[1:] * 2])
         table = spectra_table(names, X)
         table.attributes.update(spectra().attributes)
         out = self.run_widget(table)
-        assert self.widget.data_series == "plus_sol_A"
+        assert self.widget.data_series == "sol_A_added"
         np.testing.assert_allclose(self.column(out, "CD"), [-5, -20, -30, -40])
         self.widget.data_series = "raw_data"
         self.widget._series_changed()

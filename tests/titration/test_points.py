@@ -18,6 +18,7 @@ from orangecontrib.orangeCD.widgets.titration.owdeltaepsilon import OWDeltaEpsil
 from orangecontrib.orangeCD.widgets.titration.utils import (
     POINT_META,
     build_spectra_table,
+    spectrum_labels,
     spectrum_names,
     spectrum_points,
     titration_rows,
@@ -85,7 +86,7 @@ class TestLoader(PointsFixture, orange_tests.WidgetTest):
         by_name = dict(zip(names, points))
         assert [by_name[f"{i}.csv | raw_data"] for i in (1, 2, 3)] == [1, 2, 3]
         for reference in ("buffer", "sol_A", "sol_B"):
-            assert np.isnan(by_name[f"Background | {reference}"])
+            assert np.isnan(by_name[f"{reference} | raw_data"])
 
     def test_list_shows_the_number_and_ratio(self):
         domain = Domain([ContinuousVariable("ratio")])
@@ -159,15 +160,15 @@ class TestCorrectionPairing(PointsFixture, orange_tests.WidgetTest):
         )
         assert not widget.Error.active
         for name, row in zip(spectrum_names(out), out.X):
-            if name.endswith("plus_sol_A"):
+            if name.endswith("sol_A_added"):
                 np.testing.assert_allclose(row, expected[name], err_msg=name)
-        assert "2.csv | plus_sol_A" not in spectrum_names(out)
+        assert "2.csv | sol_A_added" not in spectrum_names(out)
 
     def test_points_are_carried_to_the_output(self):
         _, out = self.corrected()
         by_name = dict(zip(spectrum_names(out), spectrum_points(out)))
-        assert by_name["2.csv | plus_sol_A"] == 2
-        assert np.isnan(by_name["Background | sol_A_buffer_subtracted"])
+        assert by_name["2.csv | sol_A_added"] == 2
+        assert np.isnan(by_name["sol_A | buffer_subtracted"])
 
     def test_point_outside_the_table_is_an_error(self):
         with tempfile.TemporaryDirectory() as d:
@@ -222,8 +223,8 @@ class TestDownstream(PointsFixture, orange_tests.WidgetTest):
     def test_delta_epsilon_carries_points(self):
         delta_out, _, _ = self.chain()
         by_name = dict(zip(spectrum_names(delta_out), spectrum_points(delta_out)))
-        assert by_name["3.csv | plus_sol_A"] == 3
-        assert by_name["3.csv | plus_sol_A_delta_epsilon"] == 3
+        assert by_name["3.csv | sol_A_added"] == 3
+        assert by_name["3.csv | sol_A_added_delta_epsilon"] == 3
 
     def test_binding_data_rejects_unknown_points(self):
         _, binding, _ = self.chain()
@@ -231,3 +232,49 @@ class TestDownstream(PointsFixture, orange_tests.WidgetTest):
             binding.Inputs.titration, titration_table(RATIO[:2]), widget=binding
         )
         assert binding.Error.mismatched_points.is_shown()
+
+
+class TestSeparatorInFileName(PointsFixture, orange_tests.WidgetTest):
+    """A file name containing ' | ' must not be misread as sample | stage."""
+
+    def setUp(self):
+        self.widget = self.create_widget(OWCDDataCorrection)
+
+    def test_pipeline_keeps_the_sample_and_roles(self):
+        from pathlib import Path
+
+        from helpers import write_csv
+        from test_correction import RAW, REFERENCES, instrument_order
+
+        with tempfile.TemporaryDirectory() as d:
+            directory = Path(d)
+            loader = self.create_widget(OWCDDataLoader)
+            loader.buffer_file = write_csv(
+                directory / "buffer.csv", instrument_order(REFERENCES["buffer"])
+            )
+            loader.solution_a_file = write_csv(
+                directory / "a.csv", instrument_order(REFERENCES["sol_A"])
+            )
+            loader.data_files = [
+                write_csv(directory / f"x | {i}.csv", instrument_order(raw))
+                for i, raw in enumerate(RAW, 1)
+            ]
+            loader._refresh_file_list()
+            loader._load_and_plot_raw_data()
+            loader.commit()
+            loaded = self.get_output(loader.Outputs.data, widget=loader)
+
+        correction = self.create_widget(OWCDDataCorrection)
+        self.send_signal(
+            correction.Inputs.titration, titration(DILUTION, RATIO), widget=correction
+        )
+        self.send_signal(correction.Inputs.data, loaded, widget=correction)
+        out = self.get_output(correction.Outputs.data, widget=correction)
+        assert not correction.Error.active, correction.Error.active
+        labels = spectrum_labels(out)
+        added = [l for l in labels if l.stage == "sol_A_added"]
+        assert [l.sample for l in added] == ["x | 1.csv", "x | 2.csv", "x | 3.csv"]
+        assert {l.role for l in added} == {"titration"}
+        assert ("sol_A", "buffer_subtracted", "sol_A") in [
+            (l.sample, l.stage, l.role) for l in labels
+        ]

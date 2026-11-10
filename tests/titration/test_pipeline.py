@@ -68,7 +68,7 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         self.assertEqual(
             spectrum_names(out)[:4],
             [
-                "Background | sol_A",
+                "sol_A | raw_data",
                 "1.csv | raw_data",
                 "2.csv | raw_data",
                 "3.csv | raw_data",
@@ -109,10 +109,12 @@ class TestPipeline(LoaderFixture, orange_tests.WidgetTest):
         loaded, *_ = self.run_pipeline()
         widget = self.create_widget(OWCDSpectraPlot)
         self.send_signal(widget.Inputs.data, loaded, widget=widget)
-        widget.selected_stage = "sol_A"
+        self.assertEqual(widget.processing_stages, ["All spectra", "raw_data"])
+        widget.selected_stage = "raw_data"
         widget._stage_changed()
-        self.assertEqual(widget.spectra_names, ["Background | sol_A"])
-        self.assertEqual(len(widget.plot_item.listDataItems()), 1)
+        self.assertEqual(len(widget.spectra_names), len(loaded))
+        self.assertIn("sol_A | raw_data", widget.spectra_names)
+        self.assertEqual(len(widget.plot_item.listDataItems()), len(loaded))
         self.assertFalse(widget.Error.active)
 
     def test_foreign_table_shows_error_not_crash(self):

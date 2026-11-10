@@ -8,13 +8,19 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     MDEG_PER_DELTA_A,
     InvalidWavelength,
     MissingWavelength,
+    ROLE_BUFFER,
+    ROLE_SOL_A,
+    ROLE_SOL_B,
+    ROLE_TITRATION,
+    STAGE_RAW,
     SpectraError,
+    SpectrumLabel,
     build_spectra_table,
     has_spectroscopy_preprocessing,
     matching_spectra,
     quantity_string,
-    reference_spectrum,
     shared_unit,
+    spectrum_labels,
     spectrum_names,
     spectrum_units,
     split_series_name,
@@ -26,7 +32,7 @@ from orangecontrib.orangeCD.widgets.titration.utils import (
     wavelengths,
 )
 
-NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data", "a | plus_sol_A"]
+NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data", "a | sol_A_added"]
 
 
 @pytest.fixture
@@ -76,22 +82,83 @@ class TestLayout:
 
     def test_matching_spectra(self, table):
         assert matching_spectra(table) == list(enumerate(NAMES))
+        # the Solution A reference is a raw_data spectrum of its own role
         assert matching_spectra(table, "raw_data") == [
+            (0, "Background | sol_A"),
             (1, "a | raw_data"),
             (2, "b | raw_data"),
         ]
+        assert matching_spectra(table, "raw_data", ROLE_TITRATION) == [
+            (1, "a | raw_data"),
+            (2, "b | raw_data"),
+        ]
+        assert matching_spectra(table, "raw_data", ROLE_SOL_A) == [
+            (0, "Background | sol_A")
+        ]
         assert matching_spectra(table, "missing") == []
-        # the stage must match the whole suffix, not just end the name
+        # the stage must match exactly, not just end the name
         assert matching_spectra(table, "data") == []
 
     def test_stages_in_order_of_appearance(self, table):
-        assert stages(table) == ["sol_A", "raw_data", "plus_sol_A"]
+        assert stages(table) == ["raw_data", "sol_A_added"]
+        assert stages(table, ROLE_SOL_A) == ["raw_data"]
+        assert stages(table, ROLE_TITRATION) == ["raw_data", "sol_A_added"]
 
-    def test_reference_prefers_background(self):
-        candidates = [(0, "a | sol_A"), (3, "Background | sol_A")]
-        assert reference_spectrum(candidates) == (3, "Background | sol_A")
-        assert reference_spectrum(candidates[:1]) == (0, "a | sol_A")
-        assert reference_spectrum([]) is None
+
+class TestLabels:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("a.csv | raw_data", SpectrumLabel("a.csv", "raw_data", ROLE_TITRATION)),
+            ("Background | buffer", SpectrumLabel("buffer", "raw_data", ROLE_BUFFER)),
+            (
+                "Background | sol_A_buffer_subtracted",
+                SpectrumLabel("sol_A", "buffer_subtracted", ROLE_SOL_A),
+            ),
+            (
+                "Background | sol_B_buffer_subtracted_delta_epsilon",
+                SpectrumLabel(
+                    "sol_B", "buffer_subtracted_delta_epsilon", ROLE_SOL_B
+                ),
+            ),
+            ("Background | other", SpectrumLabel("Background", "other", ROLE_TITRATION)),
+            ("no_stage", SpectrumLabel("no_stage", "", ROLE_TITRATION)),
+        ],
+    )
+    def test_names_without_label_metas_are_split(self, name, expected):
+        table = spectra_table([name], np.zeros((1, 4)))
+        assert spectrum_labels(table) == [expected]
+
+    def test_label_name(self):
+        assert SpectrumLabel("s", "t", ROLE_SOL_A).name == "s | t"
+
+    def labelled(self):
+        # Names that would be misread if they were split: a sample whose name
+        # contains the separator, and a data sample called "Background".
+        labels = [
+            SpectrumLabel("sol_A", STAGE_RAW, ROLE_SOL_A),
+            SpectrumLabel("odd | name.csv", STAGE_RAW, ROLE_TITRATION),
+            SpectrumLabel("Background", "sol_A", ROLE_TITRATION),
+        ]
+        template = spectra_table(["x"], np.zeros((1, 4)))
+        return build_spectra_table(
+            template, np.zeros((3, 4)), labels, ["degree"] * 3
+        ), labels
+
+    def test_label_metas_win_over_the_name(self):
+        table, labels = self.labelled()
+        assert spectrum_labels(table) == labels
+        assert [n for _, n in matching_spectra(table, role=ROLE_TITRATION)] == [
+            "odd | name.csv | raw_data",
+            "Background | sol_A",
+        ]
+        assert stages(table, ROLE_SOL_A) == [STAGE_RAW]
+        assert stages(table, ROLE_TITRATION) == [STAGE_RAW, "sol_A"]
+
+    def test_metas_are_written(self):
+        table, _ = self.labelled()
+        metas = [v.name for v in table.domain.metas]
+        assert metas == ["Spectrum", "Sample", "Stage", "Role", "Unit"]
 
 
 class TestUnits:

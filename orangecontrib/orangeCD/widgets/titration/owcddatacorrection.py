@@ -12,16 +12,24 @@ from Orange.widgets.widget import Input, Msg, Output, OWWidget
 
 from ...units import Q_
 from .utils import (
-    BACKGROUND_PREFIX,
+    ROLE_BUFFER,
+    ROLE_SOL_A,
+    ROLE_SOL_B,
+    ROLE_TITRATION,
+    STAGE_BUFFER_SUBTRACTED,
+    STAGE_RAW,
+    STAGE_SOL_A_ADDED,
+    STAGE_SOL_A_SUBTRACTED,
+    STAGE_SOL_B_SUBTRACTED,
     WAVELENGTH_UNIT_KEY,
     InvalidWavelength,
     SpectraError,
+    SpectrumLabel,
     build_spectra_table,
     has_spectroscopy_preprocessing,
-    spectrum_names,
-    spectrum_units,
-    split_series_name,
+    spectrum_labels,
     spectrum_points,
+    spectrum_units,
     table_unit,
     titration_rows,
     unit_symbol,
@@ -30,16 +38,16 @@ from .utils import (
     wavelengths as spectra_wavelengths,
 )
 
-DATA_STAGE = "raw_data"
+DATA_STAGE = STAGE_RAW
 DILUTION_COLUMN = "dilution_factor"
 RATIO_COLUMN = "normalised_molar_ratio"
 
 # Stages written for every titration data spectrum, in order.
 DATA_STAGES = (
-    "buffer_subtraction",
-    "sol_A_subtraction",
-    "subtract_frac_sol_B",
-    "plus_sol_A",
+    STAGE_BUFFER_SUBTRACTED,
+    STAGE_SOL_A_SUBTRACTED,
+    STAGE_SOL_B_SUBTRACTED,
+    STAGE_SOL_A_ADDED,
 )
 
 
@@ -79,10 +87,10 @@ def correct_spectra(
         subtract_frac_sol_b = sol_a_subtraction - sol_b_bs * ratio[:, None]
     result.update(
         {
-            "buffer_subtraction": buffer_subtraction,
-            "sol_A_subtraction": sol_a_subtraction,
-            "subtract_frac_sol_B": subtract_frac_sol_b,
-            "plus_sol_A": subtract_frac_sol_b + sol_a_bs,
+            STAGE_BUFFER_SUBTRACTED: buffer_subtraction,
+            STAGE_SOL_A_SUBTRACTED: sol_a_subtraction,
+            STAGE_SOL_B_SUBTRACTED: subtract_frac_sol_b,
+            STAGE_SOL_A_ADDED: subtract_frac_sol_b + sol_a_bs,
         }
     )
     return result
@@ -153,7 +161,7 @@ class OWCDDataCorrection(OWWidget):
             "Input does not contain a 'Spectrum' string meta naming the rows."
         )
         invalid_wavelength = Msg("Input attribute names are not all valid wavelengths.")
-        missing_background = Msg("Background spectrum '{}' was not found.")
+        missing_background = Msg("No raw '{}' reference spectrum was found.")
         no_data_spectra = Msg(f"No '{DATA_STAGE}' spectra were found.")
         invalid_titration = Msg("{}")
         incompatible_units = Msg("{}")
@@ -175,7 +183,7 @@ class OWCDDataCorrection(OWWidget):
             "subtracts a further baseline."
         )
         no_sol_b = Msg(
-            "No 'Background | sol_B' spectrum: Solution B subtraction skipped."
+            "No raw 'sol_B' reference spectrum: Solution B subtraction skipped."
         )
 
     def __init__(self) -> None:
@@ -185,8 +193,8 @@ class OWCDDataCorrection(OWWidget):
         box = gui.widgetBox(self.controlArea, "Corrections")
         note = gui.widgetLabel(
             box,
-            "Applied to every 'raw_data' spectrum using the 'Background | "
-            "buffer', 'sol_A' and 'sol_B' spectra and the dilution factor and "
+            "Applied to every titration 'raw_data' spectrum using the raw "
+            "'buffer', 'sol_A' and 'sol_B' reference spectra and the dilution factor and "
             "normalised molar ratio of the Titration Table:\n"
             "1. buffer subtraction x dilution factor (1 if the Titration Table has none)\n"
             "2. subtract Solution A\n"
@@ -257,7 +265,7 @@ class OWCDDataCorrection(OWWidget):
             return None
         try:
             spectra_wavelengths(self.data)
-            names = spectrum_names(self.data)
+            labels = spectrum_labels(self.data)
         except InvalidWavelength:
             self.Error.invalid_wavelength()
             return None
@@ -265,22 +273,27 @@ class OWCDDataCorrection(OWWidget):
             self.Error.missing_spectrum_meta()
             return None
 
-        rows = {name: index for index, name in enumerate(names)}
-        buffer_row = rows.get(f"{BACKGROUND_PREFIX}buffer")
-        sol_a_row = rows.get(f"{BACKGROUND_PREFIX}sol_A")
-        sol_b_row = rows.get(f"{BACKGROUND_PREFIX}sol_B")
-        for role, row in (("buffer", buffer_row), ("sol_A", sol_a_row)):
+        def reference_row(role: str) -> int | None:
+            """The raw spectrum of a reference, if there is one."""
+            for index, label in enumerate(labels):
+                if label.role == role and label.stage == STAGE_RAW:
+                    return index
+            return None
+
+        buffer_row = reference_row(ROLE_BUFFER)
+        sol_a_row = reference_row(ROLE_SOL_A)
+        sol_b_row = reference_row(ROLE_SOL_B)
+        for role, row in ((ROLE_BUFFER, buffer_row), (ROLE_SOL_A, sol_a_row)):
             if row is None:
-                self.Error.missing_background(f"{BACKGROUND_PREFIX}{role}")
+                self.Error.missing_background(role)
                 return None
         if sol_b_row is None:
             self.Warning.no_sol_b()
 
         data_rows = [
             index
-            for index, name in enumerate(names)
-            if not name.startswith(BACKGROUND_PREFIX)
-            and (split_series_name(name) or (None, None))[1] == DATA_STAGE
+            for index, label in enumerate(labels)
+            if label.role == ROLE_TITRATION and label.stage == DATA_STAGE
         ]
         if not data_rows:
             self.Error.no_data_spectra()
@@ -350,15 +363,20 @@ class OWCDDataCorrection(OWWidget):
             self.Error.incompatible_units(str(exc))
             return None
 
-        samples = [split_series_name(names[row])[0] for row in data_rows]
+        samples = [labels[row].sample for row in data_rows]
         new_names, new_rows, new_points = [], [], []
-        for stage in ("sol_A_buffer_subtracted", "sol_B_buffer_subtracted"):
-            if stage in corrected:
-                new_names.append(f"{BACKGROUND_PREFIX}{stage}")
-                new_rows.append(corrected[stage][None, :])
+        for role, key in (
+            (ROLE_SOL_A, "sol_A_buffer_subtracted"),
+            (ROLE_SOL_B, "sol_B_buffer_subtracted"),
+        ):
+            if key in corrected:
+                new_names.append(SpectrumLabel(role, STAGE_BUFFER_SUBTRACTED, role))
+                new_rows.append(corrected[key][None, :])
                 new_points.append(np.nan)  # references belong to no point
         for stage in DATA_STAGES:
-            new_names.extend(f"{sample} | {stage}" for sample in samples)
+            new_names.extend(
+                SpectrumLabel(sample, stage, ROLE_TITRATION) for sample in samples
+            )
             new_rows.append(corrected[stage])
             if points is not None:
                 new_points.extend(points[data_rows])
@@ -367,7 +385,7 @@ class OWCDDataCorrection(OWWidget):
         output = build_spectra_table(
             self.data,
             np.vstack((self.data.X, *new_rows)),
-            [*names, *new_names],
+            [*labels, *new_names],
             [*row_units, *[unit] * len(new_names)],
             # Each corrected data spectrum keeps the point it came from.
             points=None if points is None else [*points, *new_points],

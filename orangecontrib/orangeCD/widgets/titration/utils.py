@@ -2,11 +2,23 @@
 
 A spectra table has one row per spectrum and one continuous
 attribute per wavelength, the attribute name being the wavelength itself.
-Each row is labelled by a string meta called ``Spectrum`` holding names of
-the form ``sample | processing_stage``.
+Each row is labelled by string metas:
+
+* ``Spectrum``: the name shown to the user, ``sample | stage``;
+* ``Sample``: the file the spectrum came from, or the name of the reference
+  (``buffer``, ``sol_A``, ``sol_B``);
+* ``Stage``: how far the spectrum has been processed (``raw_data``,
+  ``buffer_subtracted`` and so on);
+* ``Role``: what the spectrum is, one of ``ROLES``.
+
+Widgets select spectra by ``Sample``, ``Stage`` and ``Role`` and never take the
+``Spectrum`` name apart. Tables with only a ``Spectrum`` meta, for example from
+other add-ons, are still read by splitting the name.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import numpy as np
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
@@ -16,10 +28,30 @@ from ...units import Q_
 
 SPECTRUM_META = "Spectrum"
 UNIT_META = "Unit"
+SAMPLE_META = "Sample"
+STAGE_META = "Stage"
+ROLE_META = "Role"
 # Number of the titration point (1 for the first row of the Titration Table)
 # that a data spectrum belongs to. NaN for spectra that are not titration points.
 POINT_META = "Point"
-BACKGROUND_PREFIX = "Background | "
+
+# What a spectrum is. The three references are measured once; every other
+# spectrum is a titration point.
+ROLE_BUFFER = "buffer"
+ROLE_SOL_A = "sol_A"
+ROLE_SOL_B = "sol_B"
+ROLE_TITRATION = "titration"
+REFERENCE_ROLES = (ROLE_BUFFER, ROLE_SOL_A, ROLE_SOL_B)
+ROLES = (*REFERENCE_ROLES, ROLE_TITRATION)
+
+# How far a spectrum has been processed. Each stage is named for the step that
+# produced it, and the same name is used for the references and the data.
+STAGE_RAW = "raw_data"
+STAGE_BUFFER_SUBTRACTED = "buffer_subtracted"
+STAGE_SOL_A_SUBTRACTED = "sol_A_subtracted"
+STAGE_SOL_B_SUBTRACTED = "sol_B_subtracted"
+STAGE_SOL_A_ADDED = "sol_A_added"
+DELTA_EPSILON_SUFFIX = "delta_epsilon"
 
 # Table attribute keys. Units are stored as pint-parseable strings.
 WAVELENGTH_UNIT_KEY = "wavelength_unit"
@@ -93,36 +125,85 @@ def wavelengths(table: Table) -> np.ndarray:
         raise InvalidWavelength(str(exc)) from exc
 
 
-def matching_spectra(table: Table, stage: str | None = None) -> list[tuple[int, str]]:
-    """Return ``(row, name)`` pairs for spectra of a processing stage.
+@dataclass(frozen=True)
+class SpectrumLabel:
+    """What one row of a spectra table is."""
 
-    With ``stage=None`` every spectrum is returned.
+    sample: str
+    stage: str
+    role: str
+
+    @property
+    def name(self) -> str:
+        """The ``Spectrum`` name."""
+        return f"{self.sample} | {self.stage}"
+
+
+def _legacy_label(name: str) -> SpectrumLabel:
+    """Read the role and stage from a ``Spectrum`` name alone.
+
+    ``Background | sol_A`` is the Solution A reference, and
+    ``Background | sol_A_buffer_subtracted`` the same after buffer subtraction.
+    Anything else with a stage is a titration point.
     """
-    pairs = list(enumerate(spectrum_names(table)))
-    if stage is None:
-        return pairs
-    suffix = f" | {stage}"
-    return [(row, name) for row, name in pairs if name.endswith(suffix)]
+    parsed = split_series_name(name)
+    if parsed is None:
+        return SpectrumLabel(name, "", ROLE_TITRATION)
+    sample, stage = parsed
+    if sample == "Background":
+        for role in REFERENCE_ROLES:
+            if stage == role:
+                return SpectrumLabel(role, STAGE_RAW, role)
+            if stage.startswith(f"{role}_"):
+                return SpectrumLabel(role, stage[len(role) + 1 :], role)
+    return SpectrumLabel(sample, stage, ROLE_TITRATION)
 
 
-def stages(table: Table) -> list[str]:
-    """Return the processing stages present, in order of appearance."""
+def _string_meta(table: Table, name: str) -> list[str] | None:
+    for index, variable in enumerate(table.domain.metas):
+        if variable.name == name and isinstance(variable, StringVariable):
+            return [str(value) for value in table.metas[:, index]]
+    return None
+
+
+def spectrum_labels(table: Table) -> list[SpectrumLabel]:
+    """Return the sample, stage and role of every row, in row order."""
+    names = spectrum_names(table)  # validates the layout
+    samples = _string_meta(table, SAMPLE_META)
+    stage_names = _string_meta(table, STAGE_META)
+    if samples is None or stage_names is None:
+        return [_legacy_label(name) for name in names]
+    roles = _string_meta(table, ROLE_META) or [ROLE_TITRATION] * len(names)
+    return [
+        SpectrumLabel(sample, stage, role)
+        for sample, stage, role in zip(samples, stage_names, roles)
+    ]
+
+
+def matching_spectra(
+    table: Table, stage: str | None = None, role: str | None = None
+) -> list[tuple[int, str]]:
+    """Return ``(row, name)`` pairs for spectra of a stage and role.
+
+    With ``stage=None`` every stage is returned, and with ``role=None`` every
+    role.
+    """
+    names = spectrum_names(table)
+    return [
+        (row, names[row])
+        for row, label in enumerate(spectrum_labels(table))
+        if (stage is None or label.stage == stage)
+        and (role is None or label.role == role)
+    ]
+
+
+def stages(table: Table, role: str | None = None) -> list[str]:
+    """Return the stages present, in order of appearance."""
     found: list[str] = []
-    for name in spectrum_names(table):
-        parsed = split_series_name(name)
-        if parsed and parsed[1] not in found:
-            found.append(parsed[1])
+    for label in spectrum_labels(table):
+        if label.stage and label.stage not in found and role in (None, label.role):
+            found.append(label.stage)
     return found
-
-
-def reference_spectrum(
-    candidates: list[tuple[int, str]],
-) -> tuple[int, str] | None:
-    """Pick the Solution A reference: a Background spectrum, else the first."""
-    for candidate in candidates:
-        if candidate[1].startswith(BACKGROUND_PREFIX):
-            return candidate
-    return candidates[0] if candidates else None
 
 
 def unit_string(unit: str) -> str:
@@ -220,25 +301,39 @@ def titration_rows(points: np.ndarray, count: int, what: str) -> np.ndarray:
 def build_spectra_table(
     template: Table,
     X: np.ndarray,
-    names: list[str],
+    names: list[SpectrumLabel] | list[str],
     units: list[str],
     attributes: dict | None = None,
     points: np.ndarray | None = None,
 ) -> Table:
     """Create a spectra table on the wavelength axis of ``template``.
 
-    ``X`` holds one spectrum per row; ``names`` and ``units`` label each row
-    through the ``Spectrum`` and ``Unit`` metas. ``points``, if given, labels
-    each row with its titration point (NaN for none) through the ``Point`` meta.
+    ``X`` holds one spectrum per row. ``names`` are either a ``SpectrumLabel``
+    for each row, which give the ``Spectrum``, ``Sample``, ``Stage`` and
+    ``Role`` metas, or plain names, which give only ``Spectrum``. ``units``
+    gives the ``Unit`` meta. ``points``, if given, labels each row with its
+    titration point (NaN for none) through the ``Point`` meta.
     """
     spectrum_variable = next(
         variable for variable in template.domain.metas if variable.name == SPECTRUM_META
     )
-    meta_variables = [spectrum_variable, StringVariable(UNIT_META)]
+    labelled = bool(names) and isinstance(names[0], SpectrumLabel)
+    meta_variables = [spectrum_variable]
     meta_columns = [
-        np.asarray(names, dtype=object),
-        np.asarray(units, dtype=object),
+        np.asarray([n.name if labelled else n for n in names], dtype=object)
     ]
+    if labelled:
+        for meta, attribute in (
+            (SAMPLE_META, "sample"),
+            (STAGE_META, "stage"),
+            (ROLE_META, "role"),
+        ):
+            meta_variables.append(StringVariable(meta))
+            meta_columns.append(
+                np.asarray([getattr(n, attribute) for n in names], dtype=object)
+            )
+    meta_variables.append(StringVariable(UNIT_META))
+    meta_columns.append(np.asarray(units, dtype=object))
     if points is not None:
         meta_variables.append(ContinuousVariable(POINT_META))
         meta_columns.append(np.asarray(points, dtype=float).astype(object))

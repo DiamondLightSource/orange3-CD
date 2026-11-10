@@ -17,6 +17,7 @@ from orangecontrib.orangeCD.widgets.titration.owcddataloader import (
     test_empty_line as _empty_line,  # not a test
 )
 from orangecontrib.orangeCD.widgets.titration.utils import (
+    spectrum_labels,
     spectrum_names,
     spectrum_units,
     wavelengths,
@@ -100,8 +101,8 @@ class TestDataframeToTable:
     def make(self):
         frame = pd.DataFrame(
             {
-                ("Background", "buffer"): [1.0, 2.0, 3.0],
-                ("a.csv", "raw_data"): [4.0, 5.0, 6.0],
+                ("buffer", "raw_data", "buffer"): [1.0, 2.0, 3.0],
+                ("a.csv", "raw_data", "titration"): [4.0, 5.0, 6.0],
             },
             index=[260.0, 250.0, 240.0],
         )
@@ -109,7 +110,7 @@ class TestDataframeToTable:
 
     def test_rows_are_spectra_and_axis_ascending(self):
         table = self.make()
-        assert spectrum_names(table) == ["Background | buffer", "a.csv | raw_data"]
+        assert spectrum_names(table) == ["buffer | raw_data", "a.csv | raw_data"]
         np.testing.assert_array_equal(wavelengths(table), [240, 250, 260])
         np.testing.assert_allclose(table.X, [[3, 2, 1], [6, 5, 4]])
 
@@ -189,17 +190,30 @@ class TestLoaderWidget(orange_tests.WidgetTest):
             solution_b_file=[2] * 4,
             buffer_file=[3] * 4,
         )
-        assert spectrum_names(self.output()) == [
-            "Background | sol_A",
-            "Background | sol_B",
-            "Background | buffer",
+        table = self.output()
+        assert spectrum_names(table) == [
+            "sol_A | raw_data",
+            "sol_B | raw_data",
+            "buffer | raw_data",
             "1.csv | raw_data",
+        ]
+        assert [(l.sample, l.stage, l.role) for l in spectrum_labels(table)] == [
+            ("sol_A", "raw_data", "sol_A"),
+            ("sol_B", "raw_data", "sol_B"),
+            ("buffer", "raw_data", "buffer"),
+            ("1.csv", "raw_data", "titration"),
+        ]
+        assert [v.name for v in table.domain.metas] == [
+            "Spectrum",
+            "Sample",
+            "Stage",
+            "Role",
         ]
 
     def test_references_only(self):
         self.widget.buffer_file = write_csv(self.tmp_path / "b.csv", [1] * 4)
         self.widget.commit()
-        assert spectrum_names(self.output()) == ["Background | buffer"]
+        assert spectrum_names(self.output()) == ["buffer | raw_data"]
 
     def test_preview_has_one_curve_per_file(self):
         self.load(3)

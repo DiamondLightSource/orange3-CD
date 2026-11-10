@@ -18,11 +18,15 @@ from .utils import (
     InvalidWavelength,
     SpectraError,
     matching_spectra,
+    spectrum_labels,
     shared_unit,
     spectrum_names,
     spectrum_units,
     table_unit,
     unit_symbol,
+)
+from .utils import (
+    stages as spectra_stages,
 )
 from .utils import (
     wavelengths as spectra_wavelengths,
@@ -237,11 +241,10 @@ class OWCDSpectraPlot(OWWidget):
             stages = ["All spectra"]
         else:
             try:
-                names = spectrum_names(self.data)
+                found = spectra_stages(self.data)
             except SpectraError:
-                names = []
-            stages = sorted({name.split("|")[-1].strip() for name in names})
-            stages.insert(0, "All spectra")
+                found = []
+            stages = ["All spectra", *sorted(found)]
         self.processing_stages = stages
 
         self.stage_combo.clear()
@@ -337,6 +340,7 @@ class OWCDSpectraPlot(OWWidget):
                 self.Error.no_numeric_spectra()
             return
 
+        labels = spectrum_labels(self.data)
         colours = colours_from_scale(
             self.colour_scale,
             len(selected),
@@ -356,7 +360,7 @@ class OWCDSpectraPlot(OWWidget):
                 display_name = (
                     var_name
                     if self.selected_stage == "All spectra"
-                    else var_name.split(" | ", maxsplit=1)[0]
+                    else labels[self._row_map[index]].sample
                 )
                 self.legend.addItem(curve, display_name)
 

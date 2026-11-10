@@ -11,7 +11,7 @@ from orangecontrib.orangeCD.widgets.titration.owcdspectraplot import (
     colours_from_scale,
 )
 
-NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data", "a | plus_sol_A"]
+NAMES = ["Background | sol_A", "a | raw_data", "b | raw_data", "a | sol_A_added"]
 X = np.arange(16.0).reshape(4, 4)
 
 
@@ -69,9 +69,8 @@ class TestWidget(orange_tests.WidgetTest):
         self.send(spectra_table(NAMES, X))
         assert self.widget.processing_stages == [
             "All spectra",
-            "plus_sol_A",
             "raw_data",
-            "sol_A",
+            "sol_A_added",
         ]
 
     def test_all_spectra_selected_and_plotted(self):
@@ -91,16 +90,21 @@ class TestWidget(orange_tests.WidgetTest):
         self.send(spectra_table(NAMES, X))
         self.widget.selected_stage = "raw_data"
         self.widget._stage_changed()
-        assert self.widget.spectra_names == ["a | raw_data", "b | raw_data"]
+        # the Solution A reference has a raw_data stage too
+        assert self.widget.spectra_names == [
+            "Background | sol_A",
+            "a | raw_data",
+            "b | raw_data",
+        ]
         ys = [curve.getData()[1].tolist() for curve in self.curves()]
-        assert ys == [X[1].tolist(), X[2].tolist()]
-        assert self.legend_labels() == ["a", "b"]
+        assert ys == [X[0].tolist(), X[1].tolist(), X[2].tolist()]
+        assert self.legend_labels() == ["sol_A", "a", "b"]
 
     def test_partial_selection(self):
         self.send(spectra_table(NAMES, X))
         self.widget.selected_stage = "raw_data"
         self.widget._stage_changed()
-        self.widget.selected_spectra = [1]
+        self.widget.selected_spectra = [2]
         self.widget._replot()
         (curve,) = self.curves()
         np.testing.assert_array_equal(curve.getData()[1], X[2])
@@ -134,7 +138,7 @@ class TestWidget(orange_tests.WidgetTest):
             "Background | sol_A",
             "a | raw_data",
             "b | raw_data",
-            "a | plus_sol_A",
+            "a | sol_A_added",
         ]
         self.widget.show_legend = False
         self.widget._replot()

@@ -81,19 +81,26 @@ In a CD titration a solution of one molecule (the host) is held at a fixed conce
 
 ## Spectra and their processing stages
 
-The tables passed between the widgets have one row per spectrum, named `sample | stage`. The stage says how the spectrum was processed.
+The tables passed between the widgets have one row per spectrum. Each row has a `Sample` (the file, or the reference it is), a `Stage` (how far it has been processed) and a `Role` (what it is), and its display name is `sample | stage`. The same stage name means the same step whether it applies to a reference or to a titration spectrum.
 
-| Name | Meaning |
+**Roles**
+
+| Role | Meaning |
 |-|-|
-| `Background \| buffer` | The measured spectrum of the buffer. |
-| `Background \| sol_A` | The measured spectrum of Solution A. |
-| `Background \| sol_B` | The measured spectrum of Solution B. |
-| `<file> \| raw_data` | The measured spectrum of a titration point, averaged over its repeats. |
-| `buffer_subtraction` | The data spectrum minus the buffer, multiplied by the dilution factor. |
-| `sol_A_subtraction` | `buffer_subtraction` minus the buffer-subtracted Solution A. This leaves only what the addition of B contributes. |
-| `subtract_frac_sol_B` | `sol_A_subtraction` minus the buffer-subtracted Solution B scaled by the normalised molar ratio. This removes the part of the signal that is just the free ligand. What remains is the change caused by binding. |
-| `plus_sol_A` | `subtract_frac_sol_B` with the buffer-subtracted Solution A added back, so that the spectrum is that of A, changed by binding. |
-| `sol_A_buffer_subtracted`, `sol_B_buffer_subtracted` | The reference spectra with the buffer removed. |
+| `buffer` | The buffer reference. |
+| `sol_A` | The Solution A reference. |
+| `sol_B` | The Solution B reference. |
+| `titration` | A titration point. |
+
+**Stages**
+
+| Stage | Meaning |
+|-|-|
+| `raw_data` | The measured spectrum, averaged over its repeats. Every reference and every titration file starts here. |
+| `buffer_subtracted` | The spectrum minus the buffer. For a titration spectrum it is also multiplied by the dilution factor. For a reference (`sol_A` or `sol_B`) it is simply the reference minus the buffer. |
+| `sol_A_subtracted` | The `buffer_subtracted` titration spectrum minus the buffer-subtracted Solution A. This leaves only what the addition of B contributes. |
+| `sol_B_subtracted` | `sol_A_subtracted` minus the buffer-subtracted Solution B scaled by the normalised molar ratio. This removes the part of the signal that is just the free ligand. What remains is the change caused by binding. |
+| `sol_A_added` | `sol_B_subtracted` with the buffer-subtracted Solution A added back, so that the spectrum is that of A, changed by binding. |
 | `<stage>_delta_epsilon` | The spectrum of that stage converted to mean-residue Δε by the Delta Epsilon widget. |
 
 Other terms:
@@ -103,7 +110,8 @@ Other terms:
 | **Average** | The mean of the repeated scans in a file, which the [CD Data Loader](cd_data_loader.md) reads as the spectrum. |
 | **Zero-level offset** | A constant that is subtracted so that the spectrum is zero where the sample does not absorb, normally at long wavelengths. |
 | **Lazy process** | The option in [CD Data Correction](cd_data_correction.md) that finds the flattest stretch of each spectrum and subtracts its mean as a zero-level offset. |
-| **`Spectrum` meta** | The string column that names each row of a spectra table. |
+| **`Spectrum` meta** | The string column that names each row of a spectra table, `sample | stage`. It is for display: the widgets select spectra from the `Sample`, `Stage` and `Role` metas. Tables from other sources that have only a `Spectrum` meta are read by splitting the name. |
+| **`Sample`, `Stage` and `Role` metas** | The string columns that say which file or reference a row is, how far it has been processed, and what it is. |
 | **`Point` meta** | The number of the titration point (the row of the Titration Table) that a data spectrum belongs to. It is added by the CD Data Loader when the Titration Table is connected, and lets later widgets pair spectra with table rows by number rather than by order. |
 | **`Unit` meta** | The string column that gives the unit of each row, for tables that mix millidegrees and Δε. |
 | **Table attributes** | Values stored on a whole table rather than a column, such as `wavelength_unit`, `spectrum_unit`, `solution_a_concentration` and `pathlength`. They are how information travels from one widget to the next. |

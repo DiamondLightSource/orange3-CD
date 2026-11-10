@@ -11,8 +11,10 @@ Converts CD spectra to mean-residue delta epsilon. The selected CD spectra are k
 
 ## Controls
 
-- **Titration data series**: the series to convert, for example `plus_sol_A` or `raw_data`. Defaults to `plus_sol_A` when present, otherwise `raw_data`.
-- **Solution A series**: the Solution A reference series to convert alongside it. Defaults to `sol_A_buffer_subtracted` when present, otherwise `sol_A`.
+- **Titration data series**: the stage of the titration spectra to convert, for example `sol_A_added` or `raw_data`. Defaults to `sol_A_added` when present, otherwise `raw_data`.
+- **Solution A series**: the stage of the Solution A reference to convert alongside it. Defaults to `buffer_subtracted` when present, otherwise `raw_data`.
+
+The two lists are filled separately from the `Role` meta, so each offers only the stages that exist for the titration spectra or for the Solution A reference.
 - **Pathlength** (cm), **Mean residue molecular weight** and **Solution A molecular weight** (g/mol): the conversion parameters. All must be greater than zero. The mean residue molecular weight starts at the usual 113. The pathlength and the Solution A molecular weight depend on the experiment, so they start as "not set": a warning is shown and nothing is converted until both are available. If the connected Titration Table already carries them (they can be entered in the [CD Titration Calculator](titration_calculator.md)), those values are used, the corresponding boxes here are disabled, and the widget says so. Remove them from the calculator to enter your own.
 - **Apply**: sends the output. Tick *Apply automatically* to update on every change.
 

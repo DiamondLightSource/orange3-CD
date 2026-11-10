@@ -16,8 +16,14 @@ from .utils import (
     CONCENTRATION_KEY,
     DELTA_EPSILON_UNIT,
     MDEG_PER_DELTA_A,
+    DELTA_EPSILON_SUFFIX,
     PATHLENGTH_KEY,
+    ROLE_SOL_A,
+    ROLE_TITRATION,
     SOLUTION_A_MW_KEY,
+    STAGE_BUFFER_SUBTRACTED,
+    STAGE_RAW,
+    STAGE_SOL_A_ADDED,
     SPECTRUM_UNIT_KEY,
     UNIT_META,
     InvalidWavelength,
@@ -25,9 +31,9 @@ from .utils import (
     build_spectra_table,
     matching_spectra,
     quantity_string,
-    reference_spectrum,
+    SpectrumLabel,
+    spectrum_labels,
     spectrum_units,
-    split_series_name,
     spectrum_points,
     table_quantity,
     unit_string,
@@ -43,9 +49,8 @@ PATHLENGTH_UNIT = "centimeter"
 MOLECULAR_WEIGHT_UNIT = "gram / mole"
 CONCENTRATION_COLUMN = "working_concentration_a"
 # Preferred series, most-corrected first; used when nothing valid is saved.
-DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
-DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
-DELTA_EPSILON_SUFFIX = "delta_epsilon"
+DEFAULT_DATA_SERIES = (STAGE_SOL_A_ADDED, STAGE_RAW)
+DEFAULT_SOLUTION_A_SERIES = (STAGE_BUFFER_SUBTRACTED, STAGE_RAW)
 # The mean residue molecular weight has a standard value. The pathlength and
 # the Solution A molecular weight depend on the experiment, so they start
 # unset (0) and nothing is converted until they are entered.
@@ -335,24 +340,30 @@ class OWDeltaEpsilon(OWWidget):
 
     def _update_series_controls(self) -> None:
         stages: list[str] = []
+        data_stages: list[str] = []
+        solution_a_stages: list[str] = []
         if self.data is not None:
             try:
                 stages = spectra_stages(self.data)
+                data_stages = spectra_stages(self.data, ROLE_TITRATION)
+                solution_a_stages = spectra_stages(self.data, ROLE_SOL_A)
             except SpectraError:
                 pass
         self.available_series = stages
-        data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
+        data_stage = self._preferred(
+            data_stages, self.data_series, DEFAULT_DATA_SERIES
+        )
         solution_a = self._preferred(
-            stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
+            solution_a_stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
         )
         self._updating_series = True
-        for combo, selected in (
-            (self.data_combo, data_stage),
-            (self.solution_a_combo, solution_a),
+        for combo, selected, choices in (
+            (self.data_combo, data_stage, data_stages),
+            (self.solution_a_combo, solution_a, solution_a_stages),
         ):
             combo.blockSignals(True)
             combo.clear()
-            combo.addItems(stages)
+            combo.addItems(choices)
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
@@ -390,16 +401,17 @@ class OWDeltaEpsilon(OWWidget):
             return False
         return True
 
-    def _variables_matching(self, stage: str) -> list[tuple[int, str]]:
+    def _variables_matching(self, stage: str, role: str) -> list[tuple[int, str]]:
         if self.data is None or not stage:
             return []
         try:
-            return matching_spectra(self.data, stage)
+            return matching_spectra(self.data, stage, role)
         except SpectraError:
             return []
 
     def _solution_a_variable(self) -> tuple[int, str] | None:
-        return reference_spectrum(self._variables_matching(self.solution_a_series))
+        matches = self._variables_matching(self.solution_a_series, ROLE_SOL_A)
+        return matches[0] if matches else None
 
     def _output_points(self, rows: list[int]) -> np.ndarray | None:
         """Titration point of each output row: the selected rows, then their
@@ -410,12 +422,11 @@ class OWDeltaEpsilon(OWWidget):
         return np.concatenate((points[rows], points[rows]))
 
     @staticmethod
-    def _delta_name(variable: str) -> str:
-        parsed = split_series_name(variable)
-        if parsed is None:
-            return f"{variable}_{DELTA_EPSILON_SUFFIX}"
-        sample, stage = parsed
-        return f"{sample} | {stage}_{DELTA_EPSILON_SUFFIX}"
+    def _delta_label(label: SpectrumLabel) -> SpectrumLabel:
+        """The label of the delta epsilon version of a spectrum."""
+        return SpectrumLabel(
+            label.sample, f"{label.stage}_{DELTA_EPSILON_SUFFIX}", label.role
+        )
 
     @gui.deferred
     def commit(self) -> None:
@@ -452,7 +463,7 @@ class OWDeltaEpsilon(OWWidget):
             self.Outputs.data.send(None)
             return
 
-        indexed_data = self._variables_matching(self.data_series)
+        indexed_data = self._variables_matching(self.data_series, ROLE_TITRATION)
         if not indexed_data:
             self.Error.no_data_series(self.data_series)
             self.Outputs.data.send(None)
@@ -476,7 +487,8 @@ class OWDeltaEpsilon(OWWidget):
         row_units = spectrum_units(self.data)
         raw_rows = [solution_a, *indexed_data]
         raw_variables_idx = [row for row, _ in raw_rows]
-        raw_variable_names = [name for _, name in raw_rows]
+        all_labels = spectrum_labels(self.data)
+        raw_labels = [all_labels[row] for row in raw_variables_idx]
         raw_units = [row_units[row] for row in raw_variables_idx]
         if not all(raw_units):
             self.Error.invalid_parameter(
@@ -510,12 +522,12 @@ class OWDeltaEpsilon(OWWidget):
             return
 
         delta_unit = unit_string(DELTA_EPSILON_UNIT)
-        delta_names = [self._delta_name(name) for name in raw_variable_names]
+        delta_labels = [self._delta_label(label) for label in raw_labels]
         output = build_spectra_table(
             self.data,
             np.vstack((raw_values, converted)),
-            [*raw_variable_names, *delta_names],
-            [*raw_units, *[delta_unit] * len(delta_names)],
+            [*raw_labels, *delta_labels],
+            [*raw_units, *[delta_unit] * len(delta_labels)],
             points=self._output_points(raw_variables_idx),
         )
         output.name = (

@@ -26,7 +26,7 @@ If the titration table is also connected to the CD Data Loader, each data file i
 
 The data correction will work without any user interaction if it uses the preprocessing widget as an input. In short, the widget performs concentration-dependent titration corrections to each spectrum in turn, using the titration table as a second source of input information.
 
-The Delta Epsilon widget calculates the delta epsilon spectra. The series selection by default should be correct (Titration data series = "plus_sol_A", Solution A series = "sol_A_buffer_subtracted"). As the widget documentation describes, some more information may be necessary to input at this stage for your calculation.
+The Delta Epsilon widget calculates the delta epsilon spectra. The series selection by default should be correct (Titration data series = "sol_A_added", Solution A series = "buffer_subtracted"). As the widget documentation describes, some more information may be necessary to input at this stage for your calculation.
 
 The Binding data widget is used to simply select the wavelength at which to calculate ligand binding. The vertical line on the plot in the widget can be dragged & dropped to the desired location. The spectra shown by default are the delta epsilon spectra output by the previous widget in the pipeline.
 

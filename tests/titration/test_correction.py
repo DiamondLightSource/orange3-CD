@@ -19,6 +19,7 @@ from orangecontrib.orangeCD.widgets.titration.owcddatacorrection import (
 from orangecontrib.orangeCD.widgets.titration.owcddataloader import OWCDDataLoader
 from orangecontrib.orangeCD.widgets.titration.owdeltaepsilon import OWDeltaEpsilon
 from orangecontrib.orangeCD.widgets.titration.utils import (
+    spectrum_labels,
     spectrum_names,
     spectrum_units,
 )
@@ -102,10 +103,10 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         buffer, sol_a, sol_b = (REFERENCES[k] for k in ("buffer", "sol_A", "sol_B"))
         a_bs, b_bs = sol_a - buffer, sol_b - buffer
         np.testing.assert_allclose(
-            by_name["Background | sol_A_buffer_subtracted"], a_bs
+            by_name["sol_A | buffer_subtracted"], a_bs
         )
         np.testing.assert_allclose(
-            by_name["Background | sol_B_buffer_subtracted"], b_bs
+            by_name["sol_B | buffer_subtracted"], b_bs
         )
         for i, raw in enumerate(RAW):
             name = f"{i + 1}.csv"
@@ -113,13 +114,13 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
             sol_a_sub = buffer_sub - a_bs
             frac = sol_a_sub - b_bs * RATIO[i]
             np.testing.assert_allclose(
-                by_name[f"{name} | buffer_subtraction"], buffer_sub
+                by_name[f"{name} | buffer_subtracted"], buffer_sub
             )
             np.testing.assert_allclose(
-                by_name[f"{name} | sol_A_subtraction"], sol_a_sub
+                by_name[f"{name} | sol_A_subtracted"], sol_a_sub
             )
-            np.testing.assert_allclose(by_name[f"{name} | subtract_frac_sol_B"], frac)
-            np.testing.assert_allclose(by_name[f"{name} | plus_sol_A"], frac + a_bs)
+            np.testing.assert_allclose(by_name[f"{name} | sol_B_subtracted"], frac)
+            np.testing.assert_allclose(by_name[f"{name} | sol_A_added"], frac + a_bs)
             # inputs are retained untouched
             np.testing.assert_allclose(by_name[f"{name} | raw_data"], raw)
         self.assertEqual(set(spectrum_units(out)), {"millidegree"})
@@ -130,18 +131,18 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
             loaded = self.load(d)
         # Rewrite the buffer row in degrees: 1e-3 * mdeg values.
         names = spectrum_names(loaded)
-        row = names.index("Background | buffer")
+        row = names.index("buffer | raw_data")
         x = loaded.X.copy()
         x[row] *= 1e-3
         from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
 
         units = ["millidegree"] * len(names)
         units[row] = "degree"
-        table = build_spectra_table(loaded, x, names, units)
+        table = build_spectra_table(loaded, x, spectrum_labels(loaded), units)
         _, out = self.correct(table, titration(DILUTION, RATIO))
         by_name = dict(zip(spectrum_names(out), out.X))
         np.testing.assert_allclose(
-            by_name["Background | sol_A_buffer_subtracted"],
+            by_name["sol_A | buffer_subtracted"],
             REFERENCES["sol_A"] - REFERENCES["buffer"],
         )
 
@@ -152,7 +153,7 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         self.assertTrue(widget.Warning.no_sol_b.is_shown())
         by_name = dict(zip(spectrum_names(out), out.X))
         np.testing.assert_allclose(
-            by_name["1.csv | subtract_frac_sol_B"], by_name["1.csv | sol_A_subtraction"]
+            by_name["1.csv | sol_B_subtracted"], by_name["1.csv | sol_A_subtracted"]
         )
 
     def test_errors(self):
@@ -184,7 +185,7 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         self.assertIsNotNone(out)
         by_name = dict(zip(spectrum_names(out), out.X))
         np.testing.assert_allclose(
-            by_name["2.csv | buffer_subtraction"], RAW[1] - REFERENCES["buffer"]
+            by_name["2.csv | buffer_subtracted"], RAW[1] - REFERENCES["buffer"]
         )
         # a titration table with the column clears the warning
         self.send_signal(
@@ -213,15 +214,15 @@ class TestCorrection(CorrectionFixture, orange_tests.WidgetTest):
         delta.solution_a_molecular_weight = 1.0
         self.send_signal(delta.Inputs.titration, tit, widget=delta)
         self.send_signal(delta.Inputs.data, corrected, widget=delta)
-        self.assertEqual(delta.data_series, "plus_sol_A")
-        self.assertEqual(delta.solution_a_series, "sol_A_buffer_subtracted")
+        self.assertEqual(delta.data_series, "sol_A_added")
+        self.assertEqual(delta.solution_a_series, "buffer_subtracted")
         delta_out = self.get_output(delta.Outputs.data, widget=delta)
         self.assertFalse(delta.Error.active)
 
         binding = self.create_widget(OWBindingData)
         self.send_signal(binding.Inputs.titration, tit, widget=binding)
         self.send_signal(binding.Inputs.spectra, delta_out, widget=binding)
-        self.assertEqual(binding.data_series, "plus_sol_A")
+        self.assertEqual(binding.data_series, "sol_A_added")
         self.assertFalse(binding.Error.active, binding.Error.active)
         out = self.get_output(binding.Outputs.data, widget=binding)
         self.assertEqual(len(out), 4)
@@ -236,8 +237,8 @@ def test_correct_spectra_without_sol_b():
         np.array([2.0]),
         np.array([0.5]),
     )
-    np.testing.assert_allclose(result["buffer_subtraction"], [[4.0, 6.0]])
-    np.testing.assert_allclose(result["plus_sol_A"], [[4.0, 6.0]])
+    np.testing.assert_allclose(result["buffer_subtracted"], [[4.0, 6.0]])
+    np.testing.assert_allclose(result["sol_A_added"], [[4.0, 6.0]])
 
 
 WL = np.arange(190.0, 261.0)  # 71 points, signal below 230 nm, flat above 235 nm
@@ -419,18 +420,18 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
 
     def test_ticking_enables_the_setting_and_recalculates(self):
         self.send(lazy_table())
-        before = self.rows(self.output())["a | plus_sol_A"]
+        before = self.rows(self.output())["a | sol_A_added"]
         box = self.tick()
         assert box.isChecked() and self.widget.lazy_process
-        after = self.rows(self.output())["a | plus_sol_A"]
+        after = self.rows(self.output())["a | sol_A_added"]
         assert not np.allclose(before, after)
 
     def test_unticking_restores_the_plain_result(self):
         self.send(lazy_table())
-        before = self.rows(self.output())["a | plus_sol_A"]
+        before = self.rows(self.output())["a | sol_A_added"]
         self.tick()
         self.tick(checked=False)
-        np.testing.assert_allclose(self.rows(self.output())["a | plus_sol_A"], before)
+        np.testing.assert_allclose(self.rows(self.output())["a | sol_A_added"], before)
 
     def test_matches_manual_baseline_subtraction(self):
         from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
@@ -460,10 +461,10 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
         out = self.rows(self.output())
         tail = WL >= 236
         for stage in (
-            "buffer_subtraction",
-            "sol_A_subtraction",
-            "subtract_frac_sol_B",
-            "plus_sol_A",
+            "buffer_subtracted",
+            "sol_A_subtracted",
+            "sol_B_subtracted",
+            "sol_A_added",
         ):
             assert np.abs(out[f"a | {stage}"][tail]).max() < 0.05, stage
 

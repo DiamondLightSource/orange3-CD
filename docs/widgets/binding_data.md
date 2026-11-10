@@ -10,7 +10,7 @@ Extracts the CD signal of the titration at one wavelength and builds the binding
 ## Controls
 
 - **Measurement wavelength**: the wavelength to extract. It can also be set by dragging the red line on the plot, and snaps to the nearest wavelength in the data.
-- **Titration data series** and **Solution A series**: as in [Delta Epsilon](delta_epsilon.md). They default to `plus_sol_A` and `sol_A_buffer_subtracted`, which are in CD units (for example millidegree). A `_delta_epsilon` series can also be chosen. Its mean-residue scaling is undone using the molecular weights stored on the table (a table without them is taken to be plain delta epsilon), so `Delta A` and `Delta Epsilon` have the same meaning as for a CD series. The `CD` and `Change in CD` columns are then in delta epsilon units rather than CD units.
+- **Titration data series** and **Solution A series**: as in [Delta Epsilon](delta_epsilon.md). They default to `sol_A_added` (of the titration spectra) and `buffer_subtracted` (of the Solution A reference), which are in CD units (for example millidegree). A `_delta_epsilon` series, such as `sol_A_added_delta_epsilon`, can also be chosen. Its mean-residue scaling is undone using the molecular weights stored on the table (a table without them is taken to be plain delta epsilon), so `Delta A` and `Delta Epsilon` have the same meaning as for a CD series. The `CD` and `Change in CD` columns are then in delta epsilon units rather than CD units.
 - **Use absolute change from Solution A**: take the absolute value of the difference from Solution A. If unticked the signed difference is used.
 
 The plot shows the Solution A and titration spectra and the selected wavelength.

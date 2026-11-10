@@ -18,12 +18,16 @@ from .utils import (
     MDEG_PER_DELTA_A,
     MEASUREMENT_WAVELENGTH_KEY,
     PATHLENGTH_KEY,
+    ROLE_SOL_A,
+    ROLE_TITRATION,
+    STAGE_BUFFER_SUBTRACTED,
+    STAGE_RAW,
+    STAGE_SOL_A_ADDED,
     WAVELENGTH_UNIT_KEY,
     InvalidWavelength,
     SpectraError,
     matching_spectra,
     quantity_string,
-    reference_spectrum,
     shared_unit,
     spectrum_points,
     spectrum_units,
@@ -41,8 +45,8 @@ from .utils import (
 )
 
 # Preferred series, most-corrected first; used when nothing valid is saved.
-DEFAULT_DATA_SERIES = ("plus_sol_A", "raw_data")
-DEFAULT_SOLUTION_A_SERIES = ("sol_A_buffer_subtracted", "sol_A")
+DEFAULT_DATA_SERIES = (STAGE_SOL_A_ADDED, STAGE_RAW)
+DEFAULT_SOLUTION_A_SERIES = (STAGE_BUFFER_SUBTRACTED, STAGE_RAW)
 # Origin/CD Apps convention: concentration [B] is reported in molar.
 CONCENTRATION_UNIT = "molar"
 # CD Apps fits the Hill equation to [B] in micromolar against delta A scaled
@@ -204,24 +208,28 @@ class OWBindingData(OWWidget):
         self.commit()
 
     def _update_series_controls(self) -> None:
-        stages: list[str] = []
+        data_stages: list[str] = []
+        solution_a_stages: list[str] = []
         if self.spectra is not None:
             try:
-                stages = spectra_stages(self.spectra)
+                data_stages = spectra_stages(self.spectra, ROLE_TITRATION)
+                solution_a_stages = spectra_stages(self.spectra, ROLE_SOL_A)
             except SpectraError:
                 pass
-        data_stage = self._preferred(stages, self.data_series, DEFAULT_DATA_SERIES)
+        data_stage = self._preferred(
+            data_stages, self.data_series, DEFAULT_DATA_SERIES
+        )
         solution_a = self._preferred(
-            stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
+            solution_a_stages, self.solution_a_series, DEFAULT_SOLUTION_A_SERIES
         )
         self._updating_series = True
-        for combo, selected in (
-            (self.data_combo, data_stage),
-            (self.solution_a_combo, solution_a),
+        for combo, selected, choices in (
+            (self.data_combo, data_stage, data_stages),
+            (self.solution_a_combo, solution_a, solution_a_stages),
         ):
             combo.blockSignals(True)
             combo.clear()
-            combo.addItems(stages)
+            combo.addItems(choices)
             if selected:
                 combo.setCurrentText(selected)
             combo.blockSignals(False)
@@ -283,16 +291,17 @@ class OWBindingData(OWWidget):
             self._refresh_plot()
             self.commit()
 
-    def _matching(self, stage: str) -> list[tuple[int, str]]:
+    def _matching(self, stage: str, role: str = ROLE_TITRATION) -> list[tuple[int, str]]:
         if self.spectra is None:
             return []
         try:
-            return matching_spectra(self.spectra, stage)
+            return matching_spectra(self.spectra, stage, role)
         except SpectraError:
             return []
 
     def _reference(self) -> tuple[int, str] | None:
-        return reference_spectrum(self._matching(self.solution_a_series))
+        matches = self._matching(self.solution_a_series, ROLE_SOL_A)
+        return matches[0] if matches else None
 
     def _ratios(self) -> np.ndarray | None:
         if self.titration is None:
