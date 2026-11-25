@@ -99,6 +99,13 @@ def correct_spectra(
 DEFAULT_LAZY_WINDOW_PERCENT = 10
 MIN_WINDOW_POINTS = 3
 
+# Zero-level baseline subtracted before the corrections.
+BASELINE_NONE, BASELINE_AUTO, BASELINE_RANGE = range(3)
+# Fixed-range defaults, in the wavelength unit of the input (normally nm):
+# a stretch above the far-UV protein bands where CD should be zero.
+DEFAULT_RANGE_START = 250.0
+DEFAULT_RANGE_END = 260.0
+
 
 def find_flat_region(X: np.ndarray, window: int) -> tuple[int, int]:
     """Find the flattest stretch of the wavelength axis.
@@ -135,18 +142,28 @@ def auto_baseline(
     return X - offsets[:, None], offsets, (start, stop)
 
 
+def range_baseline(
+    X: np.ndarray, wavelengths: np.ndarray, start: float, end: float
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    """Subtract each spectrum's mean between two wavelengths (inclusive).
 
-def arithmetic_baseline(
-        X: np.ndarray,
-        wavelengths: np.ndarray,
-        lower_wavelength: float,
-        upper_wavelength: float
-) -> tuple[np.ndarray, np.ndarray]:
+    ``start`` and ``end`` may be given in either order. Returns
+    ``(corrected X, per-spectrum offsets, (lowest, highest) wavelength used)``
+    and raises ``ValueError`` when no wavelength falls inside the range.
+    """
     X = np.asarray(X, dtype=float)
-    print(X.shape)
-    filter = np.where((wavelengths>=lower_wavelength) & (wavelengths<=upper_wavelength))[0]
-    offsets = X[:,filter].mean(axis=1)
-    return X - offsets[:, None], offsets
+    wavelengths = np.asarray(wavelengths, dtype=float)
+    low, high = sorted((start, end))
+    inside = (wavelengths >= low) & (wavelengths <= high)
+    if not inside.any():
+        raise ValueError(
+            f"No wavelengths between {low:g} and {high:g}; the spectra cover "
+            f"{wavelengths.min():g}\u2013{wavelengths.max():g}"
+        )
+    offsets = np.nanmean(X[:, inside], axis=1)
+    used = wavelengths[inside]
+    return X - offsets[:, None], offsets, (float(used.min()), float(used.max()))
+
 
 class OWCDDataCorrection(OWWidget):
     name = "CD Data Correction"
@@ -159,11 +176,11 @@ class OWCDDataCorrection(OWWidget):
     want_main_area = False
     resizing_enabled = False
 
-    auto_baseline_setting = Setting(False)
+    settings_version = 2
+    baseline_mode = Setting(BASELINE_NONE)
     auto_baseline_window_percent = Setting(DEFAULT_LAZY_WINDOW_PERCENT)
-    simple_subtraction_setting = Setting(False)
-    min_wavelength = Setting(10)
-    max_wavelength = Setting(20)
+    min_wavelength = Setting(DEFAULT_RANGE_START)
+    max_wavelength = Setting(DEFAULT_RANGE_END)
 
     class Inputs:
         data = Input("CD Data", Table)
@@ -181,6 +198,7 @@ class OWCDDataCorrection(OWWidget):
         no_data_spectra = Msg(f"No '{DATA_STAGE}' spectra were found.")
         invalid_titration = Msg("{}")
         incompatible_units = Msg("{}")
+        empty_baseline_range = Msg("{}")
 
     class Warning(OWWidget.Warning):
         no_titration = Msg("Connect a Titration Table to correct the spectra.")
@@ -192,11 +210,11 @@ class OWCDDataCorrection(OWWidget):
         no_preprocessing = Msg(
             "The input does not appear to have been through Preprocess Spectra,\n"
             "so its baseline has not been subtracted. Use Preprocess Spectra,\n"
-            "or press 'Lazy process' to subtract a baseline here."
+            "or choose a zero-level baseline here."
         )
         double_baseline = Msg(
-            "The input has already been preprocessed, and 'Lazy process' "
-            "subtracts a further baseline."
+            "The input has already been preprocessed, and the zero-level "
+            "baseline chosen here subtracts a further one."
         )
         no_sol_b = Msg(
             "No raw 'sol_B' reference spectrum: Solution B subtraction skipped."
@@ -217,68 +235,94 @@ class OWCDDataCorrection(OWWidget):
             "3. subtract Solution B x molar ratio\n"
             "4. add Solution A back\n"
             "The zero-level offset is not applied; use spectral preprocessing "
-            "first, or 'Lazy process' below.",
+            "first, or choose a zero-level baseline below.",
         )
         note.setWordWrap(True)
 
-        self.auto_baseline_gui = gui.widgetBox(self.controlArea, "Auto baseline subtraction")
-        gui.checkBox(
-            self.auto_baseline_gui,
+        baseline_box = gui.radioButtons(
+            self.controlArea,
             self,
-            "auto_baseline_setting",
-            "Lazy process",
-            callback=self.check_changed,
+            "baseline_mode",
+            box="Zero-level baseline",
+            callback=self._baseline_mode_changed,
+        )
+        gui.appendRadioButton(baseline_box, "None (input already preprocessed)")
+        gui.appendRadioButton(
+            baseline_box,
+            "Flattest region",
             tooltip="Find the flattest region of the spectra and subtract each "
             "spectrum's mean over it before the corrections.",
         )
+        self.auto_baseline_gui = gui.indentedBox(baseline_box)
         gui.spin(
             self.auto_baseline_gui,
             self,
             "auto_baseline_window_percent",
             2,
             50,
-            label="Flat region width (% of wavelength range)",
+            label="Width (% of wavelength range)",
             orientation=Qt.Horizontal,
             callback=self.commit,
         )
-        self.auto_baseline_label = gui.widgetLabel(self.auto_baseline_gui, "")
-        self.auto_baseline_label.setWordWrap(True)
+        gui.appendRadioButton(
+            baseline_box,
+            "Fixed wavelength range",
+            tooltip="Subtract each spectrum's mean between the two wavelengths "
+            "before the corrections.",
+        )
+        self.range_baseline_gui = gui.indentedBox(baseline_box)
+        self.range_spins = [
+            gui.doubleSpin(
+                self.range_baseline_gui,
+                self,
+                setting,
+                0,
+                10_000,
+                0.5,
+                label=label,
+                orientation=Qt.Horizontal,
+                callback=self.commit,
+            )
+            for setting, label in (
+                ("min_wavelength", "From"),
+                ("max_wavelength", "To"),
+            )
+        ]
+        self.baseline_label = gui.widgetLabel(baseline_box, "")
+        self.baseline_label.setWordWrap(True)
+        self._update_baseline_controls()
 
-        self.simple_subtraction_gui = gui.widgetBox(self.controlArea, "Simple baseline subtraction")
-        gui.checkBox(
-            self.simple_subtraction_gui,
-            self,
-            "simple_subtraction_setting",
-            "Simple baseline subtraction",
-            callback=self.check_changed,
-            tooltip="Take the arithmetic mean of each spectrum between the wavelength " \
-            "limits and subtract it from the entire spectrum.",
-        )
-        gui.spin(
-            self.simple_subtraction_gui,
-            self,
-            "min_wavelength",
-            2,
-            500,
-            label="Wavelength start",
-            orientation=Qt.Horizontal,
-            callback=self.commit,
-        )
-        gui.spin(
-            self.simple_subtraction_gui,
-            self,
-            "max_wavelength",
-            2,
-            1000,
-            label="Wavelength end",
-            orientation=Qt.Horizontal,
-            callback=self.commit,
-        )
-        self.check_changed()
+    @classmethod
+    def migrate_settings(cls, settings, version):
+        if version is None or version < 2:
+            # Version 1 had independent "lazy process" / "simple subtraction"
+            # check boxes; they are now one choice.
+            lazy = settings.pop("lazy_process", False)
+            auto = settings.pop("auto_baseline_setting", False)
+            simple = settings.pop("simple_subtraction_setting", False)
+            if simple:
+                settings["baseline_mode"] = BASELINE_RANGE
+            elif lazy or auto:
+                settings["baseline_mode"] = BASELINE_AUTO
+            if "lazy_window_percent" in settings:
+                settings.setdefault(
+                    "auto_baseline_window_percent",
+                    settings.pop("lazy_window_percent"),
+                )
+            # Placeholder range of the first fixed-range version.
+            if (
+                settings.get("min_wavelength") == 10
+                and settings.get("max_wavelength") == 20
+            ):
+                del settings["min_wavelength"], settings["max_wavelength"]
 
     @Inputs.data
     def set_data(self, data: Table | None) -> None:
         self.data = data
+        unit = None if data is None else table_unit(data, WAVELENGTH_UNIT_KEY)
+        suffix = f" {unit_symbol(unit)}" if unit else ""
+        for spin in self.range_spins:
+            spin.setSuffix(suffix)
         self.commit()
 
     @Inputs.titration
@@ -294,16 +338,12 @@ class OWCDDataCorrection(OWWidget):
                 f"Titration Table is missing a numeric '{name}' column"
             ) from exc
 
-    def check_changed(self):
-        """
-        Callback function that handles greying out the checkboxes dynamically.
-        """
-        # If Option A is checked, grey out/disable Option B
-        self.auto_baseline_gui.setEnabled(not self.simple_subtraction_setting)
-        
-        # If Option B is checked, grey out/disable Option A
-        self.simple_subtraction_gui.setEnabled(not self.auto_baseline_setting)
+    def _update_baseline_controls(self) -> None:
+        self.auto_baseline_gui.setEnabled(self.baseline_mode == BASELINE_AUTO)
+        self.range_baseline_gui.setEnabled(self.baseline_mode == BASELINE_RANGE)
 
+    def _baseline_mode_changed(self) -> None:
+        self._update_baseline_controls()
         self.commit()
 
     def commit(self) -> None:
@@ -312,13 +352,14 @@ class OWCDDataCorrection(OWWidget):
         self.Outputs.data.send(self._correct())
 
     def _correct(self) -> Table | None:
-        self.auto_baseline_label.setText("")
+        self.baseline_label.setText("")
         if self.data is None:
             return None
         preprocessed = has_spectroscopy_preprocessing(self.data)
-        if (self.auto_baseline_setting or self.simple_subtraction_setting) and preprocessed:
+        baseline = self.baseline_mode != BASELINE_NONE
+        if baseline and preprocessed:
             self.Warning.double_baseline()
-        elif not self.auto_baseline_setting and not self.simple_subtraction_setting and not preprocessed:
+        elif not baseline and not preprocessed:
             self.Warning.no_preprocessing()
         if self.titration is None:
             self.Warning.no_titration()
@@ -397,19 +438,29 @@ class OWCDDataCorrection(OWWidget):
 
         X = self.data.X
         region = None
-        if self.auto_baseline_setting:
+        if self.baseline_mode == BASELINE_AUTO:
             X, _, (start, stop) = auto_baseline(X, self.auto_baseline_window_percent)
             axis = spectra_wavelengths(self.data)[start:stop]
             region = (float(axis.min()), float(axis.max()))
+            description = "the flat region"
+        elif self.baseline_mode == BASELINE_RANGE:
+            try:
+                X, _, region = range_baseline(
+                    X,
+                    spectra_wavelengths(self.data),
+                    self.min_wavelength,
+                    self.max_wavelength,
+                )
+            except ValueError as exc:
+                self.Error.empty_baseline_range(str(exc))
+                return None
+            description = "the range"
+        if region is not None:
             symbol = unit_symbol(table_unit(self.data, WAVELENGTH_UNIT_KEY)) or ""
-            self.auto_baseline_label.setText(
-                f"Baseline taken from the flat region {region[0]:g}\u2013"
+            self.baseline_label.setText(
+                f"Baseline taken from {description} {region[0]:g}\u2013"
                 f"{region[1]:g} {symbol}".rstrip()
             )
-        elif self.simple_subtraction_setting:
-            X, _ = arithmetic_baseline(X, spectra_wavelengths(self.data),
-                                         self.min_wavelength, self.max_wavelength)
-
 
         def values(row: int) -> np.ndarray:
             return Q_(X[row], row_units[row]).to(unit).magnitude
@@ -455,7 +506,7 @@ class OWCDDataCorrection(OWWidget):
             points=None if points is None else [*points, *new_points],
         )
         if region is not None:
-            output.attributes["lazy_baseline_region"] = list(region)
+            output.attributes["baseline_region"] = list(region)
         output.name = (
             f"{self.data.name} - corrected" if self.data.name else "Corrected CD data"
         )

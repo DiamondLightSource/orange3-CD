@@ -11,10 +11,16 @@ from Orange.widgets.tests import base as orange_tests
 
 from orangecontrib.orangeCD.widgets.titration.owbindingdata import OWBindingData
 from orangecontrib.orangeCD.widgets.titration.owcddatacorrection import (
+    BASELINE_AUTO,
+    BASELINE_NONE,
+    BASELINE_RANGE,
+    DEFAULT_RANGE_END,
+    DEFAULT_RANGE_START,
     OWCDDataCorrection,
     auto_baseline,
     correct_spectra,
     find_flat_region,
+    range_baseline,
 )
 from orangecontrib.orangeCD.widgets.titration.owcddataloader import OWCDDataLoader
 from orangecontrib.orangeCD.widgets.titration.owdeltaepsilon import OWDeltaEpsilon
@@ -335,6 +341,41 @@ class TestAutoBaseline:
         np.testing.assert_array_equal(X, before)
 
 
+class TestRangeBaseline:
+    def test_subtracts_the_mean_inside_the_range(self):
+        X = synthetic_spectra()
+        corrected, offsets, region = range_baseline(X, WL, 240, 250)
+        inside = (WL >= 240) & (WL <= 250)
+        np.testing.assert_allclose(offsets, X[:, inside].mean(axis=1))
+        np.testing.assert_allclose(corrected, X - offsets[:, None])
+        assert region == (240.0, 250.0)
+
+    def test_recovers_the_known_offsets(self):
+        _, offsets, _ = range_baseline(synthetic_spectra(), WL, 240, 260)
+        np.testing.assert_allclose(offsets, [0.3, 1.0, 0.5, 0.7, 0.9, 1.2], atol=0.01)
+
+    def test_limits_in_either_order_and_descending_axis(self):
+        X = synthetic_spectra()
+        expected = range_baseline(X, WL, 240, 250)
+        flipped = range_baseline(X[:, ::-1], WL[::-1], 250, 240)
+        np.testing.assert_allclose(flipped[0][:, ::-1], expected[0])
+        assert flipped[2] == expected[2]
+
+    def test_region_reports_the_wavelengths_actually_used(self):
+        _, _, region = range_baseline(synthetic_spectra(), WL, 239.5, 255.5)
+        assert region == (240.0, 255.0)
+
+    def test_empty_range_raises(self):
+        with pytest.raises(ValueError, match="No wavelengths between 10 and 20"):
+            range_baseline(synthetic_spectra(), WL, 10, 20)
+
+    def test_input_is_not_modified(self):
+        X = synthetic_spectra()
+        before = X.copy()
+        range_baseline(X, WL, 240, 250)
+        np.testing.assert_array_equal(X, before)
+
+
 class TestPreprocessingWarnings(CorrectionFixture, orange_tests.WidgetTest):
     def setUp(self):
         self.widget = self.create_widget(OWCDDataCorrection)
@@ -399,30 +440,31 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
     def output(self):
         return self.get_output(self.widget.Outputs.data, widget=self.widget)
 
-    def tick(self, checked=True):
-        from AnyQt.QtWidgets import QCheckBox
+    def choose(self, text):
+        from AnyQt.QtWidgets import QRadioButton
 
-        box = next(
-            c
-            for c in self.widget.controlArea.findChildren(QCheckBox)
-            if c.text() == "Lazy process"
+        button = next(
+            b
+            for b in self.widget.controlArea.findChildren(QRadioButton)
+            if b.text().startswith(text)
         )
-        if box.isChecked() != checked:
-            box.click()
-        return box
+        button.click()
+        return button
+
+    def tick(self, checked=True):
+        return self.choose("Flattest region" if checked else "None")
 
     def rows(self, table):
         return dict(zip(spectrum_names(table), table.X))
 
-    def test_checkbox_exists_and_is_off_by_default(self):
-        box = self.tick(checked=False)
-        assert not box.isChecked() and not self.widget.lazy_process
+    def test_baseline_is_off_by_default(self):
+        assert self.widget.baseline_mode == BASELINE_NONE
 
     def test_ticking_enables_the_setting_and_recalculates(self):
         self.send(lazy_table())
         before = self.rows(self.output())["a | sol_A_added"]
         box = self.tick()
-        assert box.isChecked() and self.widget.lazy_process
+        assert box.isChecked() and self.widget.baseline_mode == BASELINE_AUTO
         after = self.rows(self.output())["a | sol_A_added"]
         assert not np.allclose(before, after)
 
@@ -437,7 +479,7 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
         from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
 
         X = synthetic_spectra()
-        manual_X, _, _ = auto_baseline(X, self.widget.lazy_window_percent)
+        manual_X, _, _ = auto_baseline(X, self.widget.auto_baseline_window_percent)
         manual = build_spectra_table(
             lazy_table(X), manual_X, LAZY_NAMES, ["millidegree"] * 6
         )
@@ -470,25 +512,25 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
 
     def test_region_label_and_attribute(self):
         self.send(lazy_table())
-        assert self.widget.lazy_label.text() == ""
+        assert self.widget.baseline_label.text() == ""
         self.tick()
         start, stop = (
-            float(self.output().attributes["lazy_baseline_region"][i]) for i in (0, 1)
+            float(self.output().attributes["baseline_region"][i]) for i in (0, 1)
         )
         assert start >= 235 and stop <= 260
-        assert f"{start:g}" in self.widget.lazy_label.text()
-        assert f"{stop:g}" in self.widget.lazy_label.text()
-        assert "nm" in self.widget.lazy_label.text()
+        assert f"{start:g}" in self.widget.baseline_label.text()
+        assert f"{stop:g}" in self.widget.baseline_label.text()
+        assert "nm" in self.widget.baseline_label.text()
 
-    def test_no_region_attribute_without_lazy_process(self):
+    def test_no_region_attribute_without_a_baseline(self):
         self.send(lazy_table())
-        assert "lazy_baseline_region" not in self.output().attributes
+        assert "baseline_region" not in self.output().attributes
 
     def test_unticking_clears_the_label(self):
         self.send(lazy_table())
         self.tick()
         self.tick(checked=False)
-        assert self.widget.lazy_label.text() == ""
+        assert self.widget.baseline_label.text() == ""
 
     def test_ticking_silences_the_no_preprocessing_warning(self):
         self.send(lazy_table())
@@ -512,19 +554,19 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
     def test_window_width_changes_the_region(self):
         self.send(lazy_table())
         self.tick()
-        narrow = self.output().attributes["lazy_baseline_region"]
-        self.widget.lazy_window_percent = 40
+        narrow = self.output().attributes["baseline_region"]
+        self.widget.auto_baseline_window_percent = 40
         self.widget.commit()
-        wide = self.output().attributes["lazy_baseline_region"]
+        wide = self.output().attributes["baseline_region"]
         assert (wide[1] - wide[0]) > (narrow[1] - narrow[0])
 
     def test_settings_survive_reload(self):
         self.tick()
-        self.widget.lazy_window_percent = 25
+        self.widget.auto_baseline_window_percent = 25
         settings = self.widget.settingsHandler.pack_data(self.widget)
         widget = self.create_widget(OWCDDataCorrection, stored_settings=settings)
-        assert widget.lazy_process is True
-        assert widget.lazy_window_percent == 25
+        assert widget.baseline_mode == BASELINE_AUTO
+        assert widget.auto_baseline_window_percent == 25
 
     def test_errors_still_apply_in_lazy_mode(self):
         self.tick()
@@ -536,17 +578,112 @@ class TestLazyProcess(CorrectionFixture, orange_tests.WidgetTest):
         self.send(spectra_table(names, table.X[1:], wavelengths=WL))
         assert self.widget.Error.missing_background.is_shown()
         assert self.output() is None
-        assert self.widget.lazy_label.text() == ""
+        assert self.widget.baseline_label.text() == ""
 
     def test_works_with_other_wavelength_units(self):
         self.tick()
         self.send(lazy_table(wavelength_unit="angstrom"))
-        assert "\u00c5" in self.widget.lazy_label.text()
+        assert "\u00c5" in self.widget.baseline_label.text()
 
     def test_no_wavelength_unit(self):
         self.tick()
         self.send(lazy_table(wavelength_unit=None))
-        assert self.widget.lazy_label.text().startswith(
+        assert self.widget.baseline_label.text().startswith(
             "Baseline taken from the flat region"
         )
         assert self.output() is not None
+
+
+class TestRangeBaselineWidget(CorrectionFixture, orange_tests.WidgetTest):
+    def setUp(self):
+        self.widget = self.create_widget(OWCDDataCorrection)
+        self.tit = titration([1.0, 1.0, 1.0], RATIO)
+
+    send = TestLazyProcess.send
+    output = TestLazyProcess.output
+    choose = TestLazyProcess.choose
+
+    def test_defaults(self):
+        assert self.widget.min_wavelength == DEFAULT_RANGE_START
+        assert self.widget.max_wavelength == DEFAULT_RANGE_END
+        assert not self.widget.range_baseline_gui.isEnabled()
+        self.choose("Fixed wavelength range")
+        assert self.widget.baseline_mode == BASELINE_RANGE
+        assert self.widget.range_baseline_gui.isEnabled()
+        assert not self.widget.auto_baseline_gui.isEnabled()
+
+    def test_matches_manual_baseline_subtraction(self):
+        from orangecontrib.orangeCD.widgets.titration.utils import build_spectra_table
+
+        X = synthetic_spectra()
+        manual_X, _, _ = range_baseline(X, WL, DEFAULT_RANGE_START, DEFAULT_RANGE_END)
+        manual = build_spectra_table(
+            lazy_table(X), manual_X, LAZY_NAMES, ["millidegree"] * 6
+        )
+        self.send(manual)
+        expected = self.output().X[6:]
+        self.send(lazy_table(X))
+        self.choose("Fixed wavelength range")
+        np.testing.assert_allclose(self.output().X[6:], expected, atol=1e-12)
+        np.testing.assert_allclose(self.output().X[:6], X)
+
+    def test_region_label_attribute_and_unit_suffix(self):
+        self.send(lazy_table())
+        self.choose("Fixed wavelength range")
+        assert self.output().attributes["baseline_region"] == [250.0, 260.0]
+        assert "250" in self.widget.baseline_label.text()
+        assert "nm" in self.widget.baseline_label.text()
+        assert all(spin.suffix() == " nm" for spin in self.widget.range_spins)
+        assert not self.widget.Warning.no_preprocessing.is_shown()
+
+    def test_empty_range_is_an_error_not_nan_output(self):
+        self.widget.min_wavelength, self.widget.max_wavelength = 10, 20
+        self.send(lazy_table())
+        self.choose("Fixed wavelength range")
+        assert self.widget.Error.empty_baseline_range.is_shown()
+        assert self.output() is None
+        self.widget.controls.max_wavelength.setValue(255)  # overlaps now
+        assert not self.widget.Error.empty_baseline_range.is_shown()
+        assert np.isfinite(self.output().X).all()
+
+
+class TestSettingsMigration:
+    def migrate(self, settings, version=1):
+        OWCDDataCorrection.migrate_settings(settings, version)
+        return settings
+
+    def test_lazy_process(self):
+        settings = self.migrate({"lazy_process": True, "lazy_window_percent": 20})
+        assert settings == {
+            "baseline_mode": BASELINE_AUTO,
+            "auto_baseline_window_percent": 20,
+        }
+
+    def test_lazy_process_off(self):
+        assert self.migrate({"lazy_process": False}) == {}
+
+    def test_check_box_version(self):
+        settings = self.migrate(
+            {
+                "auto_baseline_setting": False,
+                "simple_subtraction_setting": True,
+                "min_wavelength": 245,
+                "max_wavelength": 255,
+            }
+        )
+        assert settings == {
+            "baseline_mode": BASELINE_RANGE,
+            "min_wavelength": 245,
+            "max_wavelength": 255,
+        }
+
+    def test_placeholder_range_is_dropped(self):
+        assert self.migrate({"min_wavelength": 10, "max_wavelength": 20}) == {}
+
+    def test_current_version_is_untouched(self):
+        settings = {
+            "baseline_mode": BASELINE_RANGE,
+            "min_wavelength": 10,
+            "max_wavelength": 20,
+        }
+        assert self.migrate(dict(settings), version=2) == settings
