@@ -1,24 +1,29 @@
 import numpy as np
 import pytest
+from lmfit import Model
 from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets.tests import base as orange_tests
 
-from orangecontrib.orangeCD.widgets.titration.owbindingplot import (
-    OWBindingPlot,
+from orangecontrib.orangeCD.widgets.titration.binding_models import (
+    MODELS,
+    BiHillModel,
+    BindingModel,
+    Hill1Model,
+    HillModel,
     bihill_equation,
-    fit_bihill,
-    fit_hill,
-    fit_hill1,
-    fit_result,
     hill1_equation,
     hill_equation,
-    validate_data,
 )
+from orangecontrib.orangeCD.widgets.titration.owbindingplot import OWBindingPlot
 from orangecontrib.orangeCD.widgets.titration.utils import (
     MEASUREMENT_WAVELENGTH_KEY,
 )
 
 X = np.array([0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0])
+fit_hill = HillModel().fit
+fit_hill1 = Hill1Model().fit
+fit_bihill = BiHillModel().fit
+validate_data = HillModel().validate_data
 
 
 def parameters(table):
@@ -65,8 +70,8 @@ class TestValidateData:
     @pytest.mark.parametrize(
         "x, message",
         [
-            ([1, 2, 3], "four"),
-            ([1, 2, 2, 2, 2], "distinct"),
+            ([1, 2, 3], "at least 4 finite"),
+            ([1, 2, 2, 2, 2], "4 distinct"),
             ([-1, 1, 2, 3], "non-negative"),
         ],
     )
@@ -125,8 +130,44 @@ class TestFitting:
         assert [v.name for v in result.domain.metas] == ["Parameter", "Unit"]
         assert list(result.metas[:, 0])[-2:] == ["r_sq", "red_chi_sq"]
 
-    def test_fit_result_function_exposed(self):
-        assert callable(fit_result)
+    def test_unsorted_curve_spans_the_data(self):
+        order = np.argsort(-X)
+        _, curve = fit_hill(X[order], hill_equation(X, 4.0, 3.0, 1.0)[order])
+        assert curve["x_plt"][0] == X.min() and curve["x_plt"][-1] == X.max()
+
+    def test_bihill_initial_estimates_ignore_point_order(self):
+        x = np.logspace(-1, 2, 25)
+        y = bihill_equation(x, 10.0, 1.0, 2.0, 30.0, 2.0)
+        forward = parameters(fit_bihill(x, y)[0])[0]
+        backward = parameters(fit_bihill(x[::-1], y[::-1])[0])[0]
+        assert backward == pytest.approx(forward)
+
+    def test_unestimated_errors_are_nan(self):
+        # Flat data: lmfit cannot estimate the errors and gives None.
+        result, _ = fit_hill(X, np.zeros(len(X)))
+        assert result.X.dtype == float
+        assert np.isnan(result.X[:, 1]).all()
+
+
+class TestModels:
+    def test_models_are_listed_in_menu_order(self):
+        assert [type(m) for m in MODELS] == [HillModel, Hill1Model, BiHillModel]
+
+    @pytest.mark.parametrize("model", MODELS, ids=lambda m: type(m).__name__)
+    def test_every_model_is_complete(self, model):
+        assert model.name and model.equation
+        lmfit_model = Model(type(model).function)
+        params = model.initial_params(lmfit_model, X, X)
+        assert set(params) == set(lmfit_model.param_names)
+
+    def test_base_class_is_abstract(self):
+        class Incomplete(BindingModel):
+            name = "incomplete"
+            equation = "y = x"
+            function = staticmethod(lambda x, a: a * x)
+
+        with pytest.raises(NotImplementedError):
+            Incomplete().fit(X, X)
 
 
 def binding_table(y=None, wavelength=None, n=7, with_units=True):
@@ -271,7 +312,7 @@ class TestWidget(orange_tests.WidgetTest):
         self.send(binding_table())
         self.widget.fit_model = 1
         self.widget._select_fit_model_changed()
-        assert self.widget.fit_model_fitter is fit_hill1
+        assert isinstance(self.widget.binding_model, Hill1Model)
         assert "bottom" in self.widget.equation.text()
         self.widget.fit()
         values, _ = parameters(self.output())
@@ -283,7 +324,7 @@ class TestWidget(orange_tests.WidgetTest):
         settings = self.widget.settingsHandler.pack_data(self.widget)
         reloaded = self.create_widget(OWBindingPlot, stored_settings=settings)
         assert reloaded.fit_model == 2
-        assert reloaded.fit_model_fitter is fit_bihill
+        assert isinstance(reloaded.binding_model, BiHillModel)
         assert "p_m" in reloaded.equation.text()
 
     def test_legacy_model_name_setting_falls_back_to_default(self):
@@ -291,7 +332,7 @@ class TestWidget(orange_tests.WidgetTest):
             OWBindingPlot, stored_settings={"fit_model": "Hill model (3 variable)"}
         )
         assert reloaded.fit_model == 0
-        assert reloaded.fit_model_fitter is fit_hill
+        assert isinstance(reloaded.binding_model, HillModel)
 
     def test_non_continuous_selection_is_invalid(self):
         self.send(binding_table())
