@@ -135,6 +135,19 @@ def auto_baseline(
     return X - offsets[:, None], offsets, (start, stop)
 
 
+
+def arithmetic_baseline(
+        X: np.ndarray,
+        wavelengths: np.ndarray,
+        lower_wavelength: float,
+        upper_wavelength: float
+) -> tuple[np.ndarray, np.ndarray]:
+    X = np.asarray(X, dtype=float)
+    print(X.shape)
+    filter = np.where((wavelengths>=lower_wavelength) & (wavelengths<=upper_wavelength))[0]
+    offsets = X[:,filter].mean(axis=1)
+    return X - offsets[:, None], offsets
+
 class OWCDDataCorrection(OWWidget):
     name = "CD Data Correction"
     description = (
@@ -146,8 +159,11 @@ class OWCDDataCorrection(OWWidget):
     want_main_area = False
     resizing_enabled = False
 
-    lazy_process = Setting(False)
-    lazy_window_percent = Setting(DEFAULT_LAZY_WINDOW_PERCENT)
+    auto_baseline_setting = Setting(False)
+    auto_baseline_window_percent = Setting(DEFAULT_LAZY_WINDOW_PERCENT)
+    simple_subtraction_setting = Setting(False)
+    min_wavelength = Setting(10)
+    max_wavelength = Setting(20)
 
     class Inputs:
         data = Input("CD Data", Table)
@@ -205,28 +221,60 @@ class OWCDDataCorrection(OWWidget):
         )
         note.setWordWrap(True)
 
-        lazy_box = gui.widgetBox(self.controlArea, "Lazy process")
+        self.auto_baseline_gui = gui.widgetBox(self.controlArea, "Auto baseline subtraction")
         gui.checkBox(
-            lazy_box,
+            self.auto_baseline_gui,
             self,
-            "lazy_process",
+            "auto_baseline_setting",
             "Lazy process",
-            callback=self.commit,
+            callback=self.check_changed,
             tooltip="Find the flattest region of the spectra and subtract each "
             "spectrum's mean over it before the corrections.",
         )
         gui.spin(
-            lazy_box,
+            self.auto_baseline_gui,
             self,
-            "lazy_window_percent",
+            "auto_baseline_window_percent",
             2,
             50,
             label="Flat region width (% of wavelength range)",
             orientation=Qt.Horizontal,
             callback=self.commit,
         )
-        self.lazy_label = gui.widgetLabel(lazy_box, "")
-        self.lazy_label.setWordWrap(True)
+        self.auto_baseline_label = gui.widgetLabel(self.auto_baseline_gui, "")
+        self.auto_baseline_label.setWordWrap(True)
+
+        self.simple_subtraction_gui = gui.widgetBox(self.controlArea, "Simple baseline subtraction")
+        gui.checkBox(
+            self.simple_subtraction_gui,
+            self,
+            "simple_subtraction_setting",
+            "Simple baseline subtraction",
+            callback=self.check_changed,
+            tooltip="Take the arithmetic mean of each spectrum between the wavelength " \
+            "limits and subtract it from the entire spectrum.",
+        )
+        gui.spin(
+            self.simple_subtraction_gui,
+            self,
+            "min_wavelength",
+            2,
+            500,
+            label="Wavelength start",
+            orientation=Qt.Horizontal,
+            callback=self.commit,
+        )
+        gui.spin(
+            self.simple_subtraction_gui,
+            self,
+            "max_wavelength",
+            2,
+            1000,
+            label="Wavelength end",
+            orientation=Qt.Horizontal,
+            callback=self.commit,
+        )
+        self.check_changed()
 
     @Inputs.data
     def set_data(self, data: Table | None) -> None:
@@ -246,19 +294,31 @@ class OWCDDataCorrection(OWWidget):
                 f"Titration Table is missing a numeric '{name}' column"
             ) from exc
 
+    def check_changed(self):
+        """
+        Callback function that handles greying out the checkboxes dynamically.
+        """
+        # If Option A is checked, grey out/disable Option B
+        self.auto_baseline_gui.setEnabled(not self.simple_subtraction_setting)
+        
+        # If Option B is checked, grey out/disable Option A
+        self.simple_subtraction_gui.setEnabled(not self.auto_baseline_setting)
+
+        self.commit()
+
     def commit(self) -> None:
         self.Error.clear()
         self.Warning.clear()
         self.Outputs.data.send(self._correct())
 
     def _correct(self) -> Table | None:
-        self.lazy_label.setText("")
+        self.auto_baseline_label.setText("")
         if self.data is None:
             return None
         preprocessed = has_spectroscopy_preprocessing(self.data)
-        if self.lazy_process and preprocessed:
+        if (self.auto_baseline_setting or self.simple_subtraction_setting) and preprocessed:
             self.Warning.double_baseline()
-        elif not self.lazy_process and not preprocessed:
+        elif not self.auto_baseline_setting and not self.simple_subtraction_setting and not preprocessed:
             self.Warning.no_preprocessing()
         if self.titration is None:
             self.Warning.no_titration()
@@ -337,15 +397,19 @@ class OWCDDataCorrection(OWWidget):
 
         X = self.data.X
         region = None
-        if self.lazy_process:
-            X, _, (start, stop) = auto_baseline(X, self.lazy_window_percent)
+        if self.auto_baseline_setting:
+            X, _, (start, stop) = auto_baseline(X, self.auto_baseline_window_percent)
             axis = spectra_wavelengths(self.data)[start:stop]
             region = (float(axis.min()), float(axis.max()))
             symbol = unit_symbol(table_unit(self.data, WAVELENGTH_UNIT_KEY)) or ""
-            self.lazy_label.setText(
+            self.auto_baseline_label.setText(
                 f"Baseline taken from the flat region {region[0]:g}\u2013"
                 f"{region[1]:g} {symbol}".rstrip()
             )
+        elif self.simple_subtraction_setting:
+            X, _ = arithmetic_baseline(X, spectra_wavelengths(self.data),
+                                         self.min_wavelength, self.max_wavelength)
+
 
         def values(row: int) -> np.ndarray:
             return Q_(X[row], row_units[row]).to(unit).magnitude
