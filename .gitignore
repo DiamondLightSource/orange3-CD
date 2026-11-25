@@ -66,6 +66,8 @@ venv*
 
 # further build artifacts
 lockfiles/
+# not committed: it cannot match the shared environment
+uv.lock
 
 # ruff cache
 .ruff_cache/
