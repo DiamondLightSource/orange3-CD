@@ -1,8 +1,12 @@
 # CD Data Correction
 
-Widget to apply the titration reference corrections to CD spectra. It is intended to be used **after** spectral preprocessing (for example baseline subtraction in Quasar's *Preprocess Spectra* widget):
+Widget to apply the titration reference corrections to CD spectra. The spectra need a zero-level (baseline) offset removed first. Either do this with spectral preprocessing (for example baseline subtraction in Quasar's *Preprocess Spectra* widget):
 
 `CD Data Loader` → `Preprocess Spectra` → `CD Data Correction` → [Delta Epsilon](delta_epsilon.md)
+
+or connect the loader directly and choose a [zero-level baseline](#zero-level-baseline) in this widget:
+
+`CD Data Loader` → `CD Data Correction` → [Delta Epsilon](delta_epsilon.md)
 
 ## Inputs
 
@@ -25,11 +29,20 @@ Each data spectrum is then processed in turn:
 3) `sol_B_subtracted`: scale the buffer-subtracted Solution B by the normalised molar ratio of the titration point, and subtract it from 2).
 4) `sol_A_added`: add the buffer-subtracted Solution A back to 3).
 
-> [!NOTE]
-> The zero-level (baseline) offset that used to be part of the processing is not applied. Apply it with spectral preprocessing before this widget.
+## Zero-level baseline
+
+A constant offset can be removed from every spectrum (data and references) before the corrections. Choose one option:
+
+- **None (input already preprocessed)**: the default. Use this when the baseline has been subtracted with spectral preprocessing. If the input does not appear to have been preprocessed, a warning is shown.
+- **Flattest region**: the widget finds the flattest stretch of the wavelength axis, judging every spectrum by its spread relative to its own overall spread, and subtracts each spectrum's mean over that stretch. **Width** sets the stretch as a percentage of the wavelength range (at least 3 points).
+- **Fixed wavelength range**: subtracts each spectrum's mean between **From** and **To** (inclusive; the order does not matter). The values are in the wavelength unit of the input, which is shown next to them, and default to 250–260 nm, above the far-UV protein bands where the CD should be zero. If no wavelength of the spectra falls inside the range an error is shown and nothing is sent.
+
+With either baseline option, the range actually used is shown below the options and stored in the output. If the input has already been preprocessed, a warning says that a second baseline is being subtracted.
 
 ## Output
 
 The output table contains all of the input rows, followed by the new rows named `<sample> | <stage>`, with the `Sample`, `Stage` and `Role` metas set. The references are `sol_A` and `sol_B` with the stage `buffer_subtracted`. Each row has a `Unit` meta. The stages can be selected in the [CD Spectra Plot](cd_spectra_plot.md) widget.
+
+The input rows are passed on unchanged: the zero-level baseline is only applied to the spectra used for the corrections. When a baseline option is chosen, the table attribute `baseline_region` holds the lowest and highest wavelength it was taken from.
 
 [Delta Epsilon](delta_epsilon.md) and Binding Data prefer the `sol_A_added` titration series and the `buffer_subtracted` Solution A series when they are present, and otherwise fall back to `raw_data` for both.

@@ -109,7 +109,7 @@ Other terms:
 |-|-|
 | **Average** | The mean of the repeated scans in a file, which the [CD Data Loader](cd_data_loader.md) reads as the spectrum. |
 | **Zero-level offset** | A constant that is subtracted so that the spectrum is zero where the sample does not absorb, normally at long wavelengths. |
-| **Lazy process** | The option in [CD Data Correction](cd_data_correction.md) that finds the flattest stretch of each spectrum and subtracts its mean as a zero-level offset. |
+| **Zero-level baseline** | The option in [CD Data Correction](cd_data_correction.md) that subtracts a zero-level offset before the corrections: each spectrum's mean over either the flattest stretch of the spectra or a fixed wavelength range. Use it instead of baseline subtraction in spectral preprocessing. Earlier versions called the flattest-stretch option *Lazy process*. |
 | **`Spectrum` meta** | The string column that names each row of a spectra table, `sample | stage`. It is for display: the widgets select spectra from the `Sample`, `Stage` and `Role` metas. Tables from other sources that have only a `Spectrum` meta are read by splitting the name. |
 | **`Sample`, `Stage` and `Role` metas** | The string columns that say which file or reference a row is, how far it has been processed, and what it is. |
 | **`Point` meta** | The number of the titration point (the row of the Titration Table) that a data spectrum belongs to. It is added by the CD Data Loader when the Titration Table is connected, and lets later widgets pair spectra with table rows by number rather than by order. |
